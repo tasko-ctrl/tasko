@@ -696,17 +696,18 @@ def send_otp_email(receiver_email, otp_code):
       ),
   }
 
-  try:
-    response = requests.post(url, json=payload, headers=headers, timeout=10)
-    if response.status_code in [200, 201, 202]:
-      print(f"Brevo OTP successfully sent to {receiver_email}")
-    else:
-      print(
-          f"Failed to send email via Brevo: {response.status_code} -"
-          f" {response.text}"
-      )
-      print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
-    except Exception as e:
+ try:
+      response = requests.post(url, json=payload, headers=headers, timeout=10)
+      if response.status_code in [200, 201, 202]:
+          print(f"Brevo OTP successfully sent to {receiver_email}")
+      else:
+          print(
+              f"Failed to send email via Brevo: {response.status_code} -"
+              f" {response.text}"
+          )
+          print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
+  except Exception as e:
+      print(f"Error sending email: {e}")
       print(f"Brevo request failed: {e}")
       print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
 
