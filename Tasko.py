@@ -29,6 +29,7 @@ HTML_TEMPLATE = """
     <style>
         :root {
             --bg-color: #0b0f19;
+            --sidebar-bg: #0f1624;
             --card-bg: #121826;
             --text-color: #f3f4f6;
             --border-color: #1f293d;
@@ -39,28 +40,43 @@ HTML_TEMPLATE = """
         }
         .light-theme {
             --bg-color: #f8fafc;
+            --sidebar-bg: #f1f5f9;
             --card-bg: #ffffff;
             --text-color: #0f172a;
             --border-color: #e2e8f0;
-            --input-bg: #f1f5f9;
+            --input-bg: #f8fafc;
             --subtext: #64748b;
             --accent: #4f46e5;
             --accent-hover: #4338ca;
         }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 24px; transition: background 0.2s, color 0.2s; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.2s, color 0.2s; }
+        
+        /* Sidebar Taskbar */
+        .sidebar { width: 260px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; }
+        .sidebar-brand { font-size: 1.2em; font-weight: 700; display: flex; align-items: center; gap: 10px; margin-bottom: 30px; color: var(--text-color); }
+        .sidebar-menu { display: flex; flexDirection: column; gap: 8px; flex: 1; }
+        .nav-item { padding: 10px 14px; border-radius: 6px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.95em; transition: all 0.2s; border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; }
+        .nav-item:hover, .nav-item.active { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); }
+
+        /* Main Content Area */
+        .main-content { flex: 1; overflow-y: auto; padding: 30px; box-sizing: border-box; }
         .card { background: var(--card-bg); padding: 24px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 20px -2px rgba(0,0,0,0.3); border: 1px solid var(--border-color); }
+        
         input, select, textarea { padding: 10px 14px; margin: 6px 0 14px 0; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); width: 100%; box-sizing: border-box; font-size: 0.95em; outline: none; transition: border-color 0.2s; }
         input:focus, select:focus, textarea:focus { border-color: var(--accent); }
         button { background: var(--accent); cursor: pointer; font-weight: 600; border: none; color: white; padding: 10px 16px; border-radius: 6px; width: 100%; font-size: 0.95em; transition: background 0.2s; }
         button:hover { background: var(--accent-hover); }
+        
         .hidden { display: none !important; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
         th, td { padding: 12px; border-bottom: 1px solid var(--border-color); text-align: left; }
         th { background: var(--input-bg); color: var(--subtext); font-weight: 600; }
+        
         .badge-done { background: #059669; color: white; padding: 4px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 600; }
         .badge-pending { background: #d97706; color: white; padding: 4px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 600; }
         .badge-failed { background: #dc2626; color: white; padding: 4px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 600; }
-        .chat-box { height: 220px; overflow-y: scroll; border: 1px solid var(--border-color); background: var(--input-bg); padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+        
+        .chat-box { height: 350px; overflow-y: scroll; border: 1px solid var(--border-color); background: var(--input-bg); padding: 12px; border-radius: 8px; margin-bottom: 12px; }
         .chat-message { margin-bottom: 10px; font-size: 0.9em; line-height: 1.4; }
         h2, h3, h4 { margin-top: 0; font-weight: 600; letter-spacing: -0.01em; }
         a { color: var(--accent); text-decoration: none; }
@@ -68,13 +84,9 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <div style="position: absolute; top: 24px; right: 24px;">
-        <button onclick="toggleTheme()" style="width: auto; padding: 6px 12px; font-size: 0.85em; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color);">🌓 Theme</button>
-    </div>
-
-    <div id="app" style="max-width: 800px; margin: 0 auto;">
-        <!-- AUTH CONTAINER -->
-        <div id="authContainer" class="card" style="max-width: 420px; margin: 80px auto;">
+    <!-- AUTH CONTAINER (Full Screen when logged out) -->
+    <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
+        <div class="card" style="width: 100%; max-width: 420px; margin: 0;">
             <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
                 <div style="width:12px; height:12px; background:var(--accent); border-radius:50%;"></div>
                 <h2 style="margin:0;">Tasko Workspace</h2>
@@ -111,70 +123,146 @@ HTML_TEMPLATE = """
                 <p style="margin-top:16px; font-size:0.9em; text-align:center;"><a href="#" onclick="toggleAuth('signup')">Back to Sign Up</a></p>
             </div>
         </div>
+    </div>
 
-        <!-- DASHBOARD CONTAINER -->
-        <div id="dashboardContainer" class="hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center;" class="card">
-                <div>
-                    <h2 style="margin:0; font-size:1.25em;"><span id="userNameDisp"></span></h2>
-                    <span style="font-size:0.85em; color:var(--subtext);">Role: <span id="userRoleDisp"></span></span>
-                </div>
-                <button onclick="logout()" style="width: auto; background: #dc2626; padding: 8px 14px; font-size:0.85em;">Logout</button>
+    <!-- DASHBOARD LAYOUT (Hidden until logged in) -->
+    <div id="dashboardContainer" class="hidden" style="display:flex; width:100%; height:100vh;">
+        <!-- LEFT SIDEBAR TASKBAR -->
+        <div class="sidebar">
+            <div class="sidebar-brand">
+                <div style="width:10px; height:10px; background:var(--accent); border-radius:50%;"></div>
+                <span id="brandCompanyName">Tasko Workspace</span>
+            </div>
+            
+            <div class="sidebar-menu">
+                <button class="nav-item active" onclick="switchSection('tasksSection', this)">📋 Assigned Tasks</button>
+                <button class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
+                <button class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
+                <button class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
+                <button class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
+                <button class="nav-item" onclick="switchSection('settingsSection', this)">⚙️ Settings</button>
             </div>
 
-            <!-- CEO PANEL -->
-            <div id="ceoPanel" class="card hidden">
-                <h3>CEO Control Panel</h3>
-                <p style="font-size:0.9em; color:var(--subtext);">Workspace Company ID: <strong style="color:var(--text-color);" id="dispCompanyId"></strong></p>
-                
-                <h4 style="margin-top:20px; font-size:0.95em; color:var(--subtext);">Pending Employee Approvals</h4>
-                <div id="pendingUsersList" style="font-size:0.9em;">No pending users.</div>
-
-                <h4 style="margin-top: 24px; font-size:0.95em; color:var(--subtext);">Workspace Employees</h4>
-                <div id="employeesManageList" style="font-size:0.9em;">No employees in workspace.</div>
-                
-                <h4 style="margin-top: 24px; font-size:0.95em; color:var(--subtext);">Assign Routine / Timed Task</h4>
-                <input type="text" id="taskTitle" placeholder="Task Title & Instructions (e.g. Open Shop)">
-                <select id="taskAssigneeSelect">
-                    <option value="">Select Employee</option>
-                </select>
-                <label style="font-size: 0.85em; color: var(--subtext); display: block; margin-top: 10px;">Strict Deadline:</label>
-                <input type="datetime-local" id="taskDeadline">
-                <select id="taskPriority" style="margin-top: 6px;">
-                    <option value="Low">Low Priority</option>
-                    <option value="Medium" selected>Medium Priority</option>
-                    <option value="High">High Priority</option>
-                </select>
-                <button onclick="createTask()" style="margin-top:10px;">Assign Task</button>
+            <div style="border-top:1px solid var(--border-color); padding-top:15px; margin-top:auto;">
+                <div style="font-size:0.85em; color:var(--text-color); font-weight:600;" id="sidebarUserName">User</div>
+                <div style="font-size:0.75em; color:var(--subtext); margin-bottom:10px;" id="sidebarUserRole">Role</div>
+                <button onclick="logout()" style="background:#dc2626; padding:6px; font-size:0.85em;">Logout</button>
             </div>
+        </div>
 
-            <!-- SHARED / EMPLOYEE WORKSPACE -->
-            <div class="card">
-                <h3>Assigned Tasks & Routines</h3>
-                <div id="myTasksList">No tasks assigned.</div>
-            </div>
-
-            <!-- LIVE WORKSPACE CHAT -->
-            <div class="card">
-                <h3>Live Workspace Chat</h3>
-                <div id="chatBox" class="chat-box"></div>
-                <div style="display:flex; gap:10px;">
-                    <input type="text" id="chatInput" placeholder="Type a message to the team..." onkeydown="if(event.key==='Enter') sendChatMessage()" style="margin:0;">
-                    <button onclick="sendChatMessage()" style="width: auto; margin:0; padding:0 20px;">Send</button>
+        <!-- MAIN CONTENT VIEW SECTIONS -->
+        <div class="main-content">
+            <!-- SECTION: ASSIGNED TASKS -->
+            <div id="tasksSection" class="section-view">
+                <div class="card">
+                    <h2>Assigned Tasks & Routines</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">Review your assigned tasks and upload image proofs for instant AI verification.</p>
+                    <div id="myTasksList" style="margin-top:15px;">No tasks found.</div>
                 </div>
             </div>
 
-            <!-- WORK HISTORY LOG -->
-            <div class="card">
-                <h3>Workspace Activity Log</h3>
-                <table>
-                    <thead>
-                        <tr><th>Time</th><th>Action</th></tr>
-                    </thead>
-                    <tbody id="historyTableBody">
-                        <tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>
-                    </tbody>
-                </table>
+            <!-- SECTION: ASSIGN TASK (CEO Only) -->
+            <div id="assignSection" class="section-view hidden">
+                <div class="card">
+                    <h2>Assign Routine / Timed Task</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">Dispatch new instructions and deadlines to active team members.</p>
+                    
+                    <label style="font-size:0.85em; color:var(--subtext);">Task Title & Instructions</label>
+                    <input type="text" id="taskTitle" placeholder="e.g. Open Shop & Verify Inventory">
+                    
+                    <label style="font-size:0.85em; color:var(--subtext);">Assignee</label>
+                    <select id="taskAssigneeSelect">
+                        <option value="">Select Employee</option>
+                    </select>
+                    
+                    <label style="font-size:0.85em; color:var(--subtext);">Strict Deadline</label>
+                    <input type="datetime-local" id="taskDeadline">
+                    
+                    <label style="font-size:0.85em; color:var(--subtext);">Priority</label>
+                    <select id="taskPriority">
+                        <option value="Low">Low Priority</option>
+                        <option value="Medium" selected>Medium Priority</option>
+                        <option value="High">High Priority</option>
+                    </select>
+                    
+                    <button onclick="createTask()" style="margin-top:10px;">Assign Task to Team Member</button>
+                </div>
+            </div>
+
+            <!-- SECTION: EMPLOYEE APPROVALS (CEO Only) -->
+            <div id="approvalsSection" class="section-view hidden">
+                <div class="card">
+                    <h2>Employee Approvals & Management</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">Manage workspace access and active team members.</p>
+                    
+                    <h4 style="margin-top:20px; font-size:0.95em; color:var(--subtext);">Pending Requests</h4>
+                    <div id="pendingUsersList" style="margin-bottom:20px;">No pending users.</div>
+
+                    <h4 style="margin-top:20px; font-size:0.95em; color:var(--subtext);">Active Workspace Employees</h4>
+                    <div id="employeesManageList">No employees in workspace.</div>
+                </div>
+            </div>
+
+            <!-- SECTION: TEAM CHAT -->
+            <div id="chatSection" class="section-view hidden">
+                <div class="card" style="height:calc(100vh - 100px); display:flex; flex-direction:column;">
+                    <h2>Live Workspace Chat</h2>
+                    <div id="chatBox" class="chat-box" style="flex:1;"></div>
+                    <div style="display:flex; gap:10px; margin-top:auto;">
+                        <input type="text" id="chatInput" placeholder="Type a message to the team..." onkeydown="if(event.key==='Enter') sendChatMessage()" style="margin:0;">
+                        <button onclick="sendChatMessage()" style="width: auto; margin:0; padding:0 24px;">Send</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: ACTIVITY LOGS -->
+            <div id="logsSection" class="section-view hidden">
+                <div class="card">
+                    <h2>Workspace Activity Log</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">Complete audit trail of assignments, verifications, and approvals.</p>
+                    <table>
+                        <thead>
+                            <tr><th>Time</th><th>Action</th></tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- SECTION: SETTINGS -->
+            <div id="settingsSection" class="section-view hidden">
+                <div class="card" style="max-width: 600px;">
+                    <h2>Workspace Settings</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">Customize your workspace appearance and preferences.</p>
+                    
+                    <div style="margin-top:20px;">
+                        <label style="font-size:0.85em; color:var(--subtext);">Workspace Company Name</label>
+                        <div style="display:flex; gap:10px;">
+                            <input type="text" id="settingsCompanyName" placeholder="MyCorp">
+                            <button onclick="updateCompanyName()" style="width:auto; margin:6px 0 14px 0;">Save</button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:10px;">
+                        <label style="font-size:0.85em; color:var(--subtext);">Workspace ID (Read-only)</label>
+                        <input type="text" id="settingsCompanyId" readonly style="opacity:0.7; cursor:not-allowed;">
+                    </div>
+
+                    <div style="margin-top:20px; border-top:1px solid var(--border-color); padding-top:20px;">
+                        <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:8px;">Appearance Theme</label>
+                        <button onclick="toggleTheme()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); width:auto; padding:8px 16px;">🌓 Toggle Dark / Light Mode</button>
+                    </div>
+
+                    <div style="margin-top:20px; border-top:1px solid var(--border-color); padding-top:20px;">
+                        <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:8px;">Notification Sound Preference</label>
+                        <select id="settingsNotificationSound">
+                            <option value="enabled">Enabled (Chime on New Task)</option>
+                            <option value="disabled">Disabled (Silent)</option>
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -196,6 +284,13 @@ HTML_TEMPLATE = """
             document.body.classList.toggle('light-theme');
             currentTheme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
             localStorage.setItem('tasko_theme', currentTheme);
+        }
+
+        function switchSection(sectionId, btnElement) {
+            document.querySelectorAll('.section-view').forEach(el => el.classList.add('hidden'));
+            document.getElementById(sectionId).classList.remove('hidden');
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            btnElement.classList.add('active');
         }
 
         function toggleAuth(formType) {
@@ -262,32 +357,48 @@ HTML_TEMPLATE = """
         function logout() {
             currentUser = null;
             localStorage.removeItem('tasko_user');
-            document.getElementById('authContainer').classList.remove('hidden');
+            document.getElementById('authContainer').style.display = 'flex';
             document.getElementById('dashboardContainer').classList.add('hidden');
             toggleAuth('login');
         }
 
         async function checkLoginState() {
             if(!currentUser) return;
-            document.getElementById('authContainer').classList.add('hidden');
+            document.getElementById('authContainer').style.display = 'none';
             document.getElementById('dashboardContainer').classList.remove('hidden');
-            document.getElementById('userNameDisp').innerText = currentUser.name;
-            document.getElementById('userRoleDisp').innerText = currentUser.role;
+            
+            document.getElementById('sidebarUserName').innerText = currentUser.name;
+            document.getElementById('sidebarUserRole').innerText = currentUser.role;
+            document.getElementById('brandCompanyName').innerText = currentUser.company_name || "Tasko Workspace";
+            
+            document.getElementById('settingsCompanyName').value = currentUser.company_name || "MyCorp";
+            document.getElementById('settingsCompanyId').value = currentUser.company_id;
 
             let isCeo = currentUser.role === 'CEO';
-            let ceoPanel = document.getElementById('ceoPanel');
-            
+            document.querySelectorAll('.ceo-only').forEach(el => {
+                if(isCeo) el.classList.remove('hidden');
+                else el.classList.add('hidden');
+            });
+
             if(isCeo) {
-                ceoPanel.classList.remove('hidden');
-                document.getElementById('dispCompanyId').innerText = currentUser.company_id;
                 loadPendingUsers();
                 loadEmployeesManagement();
                 loadEmployeesDropdown();
-            } else {
-                ceoPanel.classList.add('hidden');
             }
             loadDashboardData();
             loadWorkspaceChat();
+        }
+
+        async function updateCompanyName() {
+            let newName = document.getElementById('settingsCompanyName').value;
+            if(!newName) { alert("Company name cannot be empty."); return; }
+            let res = await fetch('/api/admin/update-company', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({company_id: currentUser.company_id, company_name: newName})});
+            if(res.ok) {
+                currentUser.company_name = newName;
+                localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                document.getElementById('brandCompanyName').innerText = newName;
+                alert("Company name updated successfully!");
+            }
         }
 
         async function loadPendingUsers() {
@@ -359,6 +470,7 @@ HTML_TEMPLATE = """
             await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
             document.getElementById('taskTitle').value = '';
             document.getElementById('taskDeadline').value = '';
+            alert("Task assigned successfully!");
             loadDashboardData();
         }
 
@@ -737,6 +849,25 @@ def kick_employee():
     )
     return jsonify({"success": True})
   return jsonify({"error": "Employee not found."}), 404
+
+
+@app.route("/api/admin/update-company", methods=["POST"])
+def update_company():
+  data = request.json
+  company_id = data.get("company_id")
+  new_name = data.get("company_name")
+  for u in USERS_DB.values():
+    if str(u.get("company_id")) == str(company_id):
+      u["company_name"] = new_name
+  HISTORY_DB.insert(
+      0,
+      {
+          "company_id": company_id,
+          "action": f"Workspace company name updated to '{new_name}'",
+          "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+      },
+  )
+  return jsonify({"success": True})
 
 
 if __name__ == "__main__":
