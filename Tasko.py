@@ -17,6 +17,8 @@ USERS_DB = {}
 PENDING_USERS_DB = {}
 OTP_DB = {}
 TASKS_DB = []
+DAILY_ROUTINES_DB = []
+DAILY_LOGS_DB = {}  # Format: { "YYYY-MM-DD": { routine_index: status } }
 HISTORY_DB = []
 MESSAGES_DB = []
 
@@ -51,14 +53,12 @@ HTML_TEMPLATE = """
         }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.2s, color 0.2s; }
         
-        /* Sidebar Taskbar Fixes */
         .sidebar { width: 260px; min-width: 260px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; height: 100vh; }
         .sidebar-brand { font-size: 1.2em; font-weight: 700; display: flex; align-items: center; gap: 10px; margin-bottom: 30px; color: var(--text-color); }
         .sidebar-menu { display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; }
         .nav-item { padding: 10px 14px; border-radius: 6px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.95em; transition: all 0.2s; border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; box-sizing: border-box; }
         .nav-item:hover, .nav-item.active { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); }
 
-        /* Main Content Area */
         .main-content { flex: 1; overflow-y: auto; padding: 30px; box-sizing: border-box; }
         .card { background: var(--card-bg); padding: 24px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 20px -2px rgba(0,0,0,0.3); border: 1px solid var(--border-color); }
         
@@ -136,7 +136,9 @@ HTML_TEMPLATE = """
             
             <div class="sidebar-menu">
                 <button class="nav-item active" onclick="switchSection('tasksSection', this)">📋 Assigned Tasks</button>
+                <button class="nav-item" onclick="switchSection('routinesSection', this)">🔄 Daily Routines</button>
                 <button class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
+                <button class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙️ Set Daily Routines</button>
                 <button class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
                 <button class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
                 <button class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
@@ -161,14 +163,23 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
+            <!-- SECTION: DAILY ROUTINES (Employee View / Status) -->
+            <div id="routinesSection" class="section-view hidden">
+                <div class="card">
+                    <h2>Daily Recurring Routines</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">These routines reset every single day. Complete them daily!</p>
+                    <div id="dailyRoutinesList" style="margin-top:15px;">No daily routines set for this workspace.</div>
+                </div>
+            </div>
+
             <!-- SECTION: ASSIGN TASK (CEO Only) -->
             <div id="assignSection" class="section-view hidden">
                 <div class="card">
-                    <h2>Assign Routine / Timed Task</h2>
+                    <h2>Assign One-Time Task</h2>
                     <p style="font-size:0.9em; color:var(--subtext);">Dispatch new instructions and deadlines to active team members.</p>
                     
                     <label style="font-size:0.85em; color:var(--subtext);">Task Title & Instructions</label>
-                    <input type="text" id="taskTitle" placeholder="e.g. Open Shop & Verify Inventory">
+                    <input type="text" id="taskTitle" placeholder="e.g. Audit Quarterly Financials">
                     
                     <label style="font-size:0.85em; color:var(--subtext);">Assignee</label>
                     <select id="taskAssigneeSelect">
@@ -186,6 +197,27 @@ HTML_TEMPLATE = """
                     </select>
                     
                     <button onclick="createTask()" style="margin-top:10px;">Assign Task to Team Member</button>
+                </div>
+            </div>
+
+            <!-- SECTION: SET DAILY ROUTINES (CEO Only) -->
+            <div id="routinesConfigSection" class="section-view hidden">
+                <div class="card">
+                    <h2>Configure Auto-Daily Routines</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">Set up mandatory tasks that your team must perform and check off every single day.</p>
+                    
+                    <label style="font-size:0.85em; color:var(--subtext);">Routine Title & Instructions</label>
+                    <input type="text" id="routineTitle" placeholder="e.g. Open Shop & Verify Inventory">
+                    
+                    <label style="font-size:0.85em; color:var(--subtext);">Assignee</label>
+                    <select id="routineAssigneeSelect">
+                        <option value="">Select Employee</option>
+                    </select>
+                    
+                    <button onclick="createDailyRoutine()" style="margin-top:10px;">Add Auto-Daily Routine</button>
+
+                    <h4 style="margin-top:25px; font-size:0.95em; color:var(--subtext);">Active Daily Routines</h4>
+                    <div id="configRoutinesList">No routines configured.</div>
                 </div>
             </div>
 
@@ -460,8 +492,9 @@ HTML_TEMPLATE = """
         async function loadEmployeesDropdown() {
             let res = await fetch(`/api/admin/employees-list?company_id=${currentUser.company_id}`);
             let data = await res.json();
-            let select = document.getElementById('taskAssigneeSelect');
-            select.innerHTML = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${e.name}">${e.name} (${e.role})</option>`).join('');
+            let opts = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${e.name}">${e.name} (${e.role})</option>`).join('');
+            document.getElementById('taskAssigneeSelect').innerHTML = opts;
+            document.getElementById('routineAssigneeSelect').innerHTML = opts;
         }
 
         async function createTask() {
@@ -483,10 +516,27 @@ HTML_TEMPLATE = """
             loadDashboardData();
         }
 
+        async function createDailyRoutine() {
+            let data = {
+                title: document.getElementById('routineTitle').value,
+                assigned_to: document.getElementById('routineAssigneeSelect').value,
+                company_id: currentUser.company_id
+            };
+            if(!data.title || !data.assigned_to) {
+                alert("Please fill out routine title and assignee.");
+                return;
+            }
+            await fetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            document.getElementById('routineTitle').value = '';
+            alert("Daily routine configured successfully!");
+            loadDashboardData();
+        }
+
         async function loadDashboardData() {
             let res = await fetch(`/api/data?company_id=${currentUser.company_id}`);
             let data = await res.json();
             
+            // Tasks
             let tasksContainer = document.getElementById('myTasksList');
             let userTasks = data.tasks.filter(t => String(t.company_id) === String(currentUser.company_id) && (currentUser.role === 'CEO' || t.assigned_to === currentUser.name));
             
@@ -527,6 +577,50 @@ HTML_TEMPLATE = """
                 }).join('');
             }
 
+            // Daily Routines
+            let routinesContainer = document.getElementById('dailyRoutinesList');
+            let configRoutinesContainer = document.getElementById('configRoutinesList');
+            let userRoutines = data.routines.filter(r => String(r.company_id) === String(currentUser.company_id));
+
+            if(configRoutinesContainer) {
+                configRoutinesContainer.innerHTML = userRoutines.length === 0 ? "<span style='color:var(--subtext);'>No daily routines configured.</span>" :
+                    userRoutines.map(r => `<div style="padding:6px 0; border-bottom:1px solid var(--border-color);"><b>${r.title}</b> &bull; Assigned to: ${r.assigned_to}</div>`).join('');
+            }
+
+            let viewableRoutines = userRoutines.filter(r => currentUser.role === 'CEO' || r.assigned_to === currentUser.name);
+            if(viewableRoutines.length === 0) {
+                routinesContainer.innerHTML = "<span style='color:var(--subtext);'>No daily routines for today.</span>";
+            } else {
+                routinesContainer.innerHTML = viewableRoutines.map(r => {
+                    let rIdx = data.routines.indexOf(r);
+                    let isDoneToday = r.today_status === 'Completed';
+                    let statusBadge = isDoneToday ? '<span class="badge-done">Done Today ✓</span>' : '<span class="badge-pending">Pending Today</span>';
+                    
+                    let actionHtml = '';
+                    if(currentUser.role !== 'CEO' && !isDoneToday) {
+                        actionHtml = `
+                            <div style="margin-top:10px;">
+                                <button onclick="markRoutineDone(${rIdx})" style="background:#059669; width:auto; padding:6px 14px; font-size:0.85em;">Mark Completed for Today</button>
+                            </div>
+                        `;
+                    }
+
+                    return `
+                        <div style="background:var(--input-bg); padding:14px; margin:10px 0; border-radius:8px; border:1px solid var(--border-color);">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <strong>${r.title}</strong>
+                                    <div style="font-size:0.85em; color:var(--subtext);">Assigned to: ${r.assigned_to} &bull; Resets daily</div>
+                                </div>
+                                <div>${statusBadge}</div>
+                            </div>
+                            ${actionHtml}
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // History
             let historyBody = document.getElementById('historyTableBody');
             let workspaceHistory = data.history.filter(h => !h.company_id || String(h.company_id) === String(currentUser.company_id));
             historyBody.innerHTML = workspaceHistory.length === 0 ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>` : 
@@ -546,6 +640,11 @@ HTML_TEMPLATE = """
                 let result = await res.json();
                 if(res.ok) { alert("AI Verification Complete: " + result.status); loadDashboardData(); }
             };
+        }
+
+        async function markRoutineDone(routineIndex) {
+            await fetch('/api/routines/complete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index: routineIndex})});
+            loadDashboardData();
         }
 
         async function loadWorkspaceChat() {
@@ -678,10 +777,22 @@ def login():
 @app.route("/api/data", methods=["GET"])
 def get_data():
   company_id = request.args.get("company_id")
+  today_date = datetime.datetime.now().strftime("%Y-%m-%d")
+
+  # Inject today's completion status into routines
+  today_logs = DAILY_LOGS_DB.get(today_date, {})
+  routines_with_status = []
+  for idx, r in enumerate(DAILY_ROUTINES_DB):
+    if str(r.get("company_id")) == str(company_id):
+      r_copy = r.copy()
+      r_copy["today_status"] = today_logs.get(idx, "Pending")
+      routines_with_status.append(r_copy)
+
   return jsonify({
       "tasks": [
           t for t in TASKS_DB if str(t.get("company_id")) == str(company_id)
       ],
+      "routines": routines_with_status,
       "history": [
           h
           for h in HISTORY_DB
@@ -715,8 +826,61 @@ def add_task():
       {
           "company_id": company_id,
           "action": (
-              f"Task/Routine '{title}' assigned to {assigned_to} (Deadline:"
+              f"Task '{title}' assigned to {assigned_to} (Deadline:"
               f" {deadline or 'None'})"
+          ),
+          "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+      },
+  )
+  return jsonify({"success": True})
+
+
+@app.route("/api/routines", methods=["POST"])
+def add_routine():
+  data = request.json
+  title = data.get("title")
+  assigned_to = data.get("assigned_to")
+  company_id = data.get("company_id")
+
+  DAILY_ROUTINES_DB.append({
+      "title": title,
+      "assigned_to": assigned_to,
+      "company_id": company_id,
+  })
+
+  HISTORY_DB.insert(
+      0,
+      {
+          "company_id": company_id,
+          "action": f"Auto-daily routine '{title}' set for {assigned_to}",
+          "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+      },
+  )
+  return jsonify({"success": True})
+
+
+@app.route("/api/routines/complete", methods=["POST"])
+def complete_routine():
+  data = request.json
+  index = data.get("index")
+  today_date = datetime.datetime.now().strftime("%Y-%m-%d")
+
+  if not (0 <= index < len(DAILY_ROUTINES_DB)):
+    return jsonify({"error": "Routine not found."}), 404
+
+  if today_date not in DAILY_LOGS_DB:
+    DAILY_LOGS_DB[today_date] = {}
+
+  DAILY_LOGS_DB[today_date][index] = "Completed"
+  routine = DAILY_ROUTINES_DB[index]
+
+  HISTORY_DB.insert(
+      0,
+      {
+          "company_id": routine.get("company_id"),
+          "action": (
+              f"Daily routine '{routine['title']}' marked completed for today"
+              f" by {routine['assigned_to']}"
           ),
           "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
       },
