@@ -51,11 +51,11 @@ HTML_TEMPLATE = """
         }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.2s, color 0.2s; }
         
-        /* Sidebar Taskbar */
-        .sidebar { width: 260px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; }
+        /* Sidebar Taskbar Fixes */
+        .sidebar { width: 260px; min-width: 260px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; height: 100vh; }
         .sidebar-brand { font-size: 1.2em; font-weight: 700; display: flex; align-items: center; gap: 10px; margin-bottom: 30px; color: var(--text-color); }
-        .sidebar-menu { display: flex; flexDirection: column; gap: 8px; flex: 1; }
-        .nav-item { padding: 10px 14px; border-radius: 6px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.95em; transition: all 0.2s; border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; }
+        .sidebar-menu { display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; }
+        .nav-item { padding: 10px 14px; border-radius: 6px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.95em; transition: all 0.2s; border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; box-sizing: border-box; }
         .nav-item:hover, .nav-item.active { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); }
 
         /* Main Content Area */
@@ -84,7 +84,7 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <!-- AUTH CONTAINER (Full Screen when logged out) -->
+    <!-- AUTH CONTAINER -->
     <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
         <div class="card" style="width: 100%; max-width: 420px; margin: 0;">
             <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
@@ -125,7 +125,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- DASHBOARD LAYOUT (Hidden until logged in) -->
+    <!-- DASHBOARD CONTAINER -->
     <div id="dashboardContainer" class="hidden" style="display:flex; width:100%; height:100vh;">
         <!-- LEFT SIDEBAR TASKBAR -->
         <div class="sidebar">
@@ -260,6 +260,15 @@ HTML_TEMPLATE = """
                         <select id="settingsNotificationSound">
                             <option value="enabled">Enabled (Chime on New Task)</option>
                             <option value="disabled">Disabled (Silent)</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-top:20px; border-top:1px solid var(--border-color); padding-top:20px;">
+                        <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:8px;">Workspace Auto-Refresh Rate</label>
+                        <select id="settingsRefreshRate">
+                            <option value="3">Fast (3 seconds)</option>
+                            <option value="10" selected>Balanced (10 seconds)</option>
+                            <option value="30">Slow (30 seconds)</option>
                         </select>
                     </div>
                 </div>
