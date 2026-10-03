@@ -2,11 +2,10 @@ import datetime
 import os
 import base64
 import random
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 from flask import Flask, jsonify, request, render_template_string
 from google import genai
+from google.api_core import exceptions
 from google.genai import types
 
 app = Flask(__name__)
@@ -138,7 +137,7 @@ HTML_TEMPLATE = """
                 <button class="nav-item active" onclick="switchSection('tasksSection', this)">📋 Assigned Tasks</button>
                 <button class="nav-item" onclick="switchSection('routinesSection', this)">🔄 Daily Routines</button>
                 <button class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
-                <button class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙️ Set Daily Routines</button>
+                <button class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙️️ Set Daily Routines</button>
                 <button class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
                 <button class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
                 <button class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
@@ -672,31 +671,44 @@ HTML_TEMPLATE = """
 
 
 def send_otp_email(receiver_email, otp_code):
-  sender_email = os.environ.get("SMTP_EMAIL")
-  sender_password = os.environ.get("SMTP_PASS")
+  brevo_api_key = os.environ.get("BREVO_API_KEY")
+  sender_email = os.environ.get("SENDER_EMAIL") or os.environ.get(
+      "SMTP_EMAIL"
+  )  # fallback
 
-  if not sender_email or not sender_password:
+  if not brevo_api_key or not sender_email:
     print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
     return
 
+  url = "https://api.brevo.com/v3/smtp/email"
+  headers = {
+      "accept": "application/json",
+      "api-key": brevo_api_key,
+      "content-type": "application/json",
+  }
+  payload = {
+      "sender": {"email": sender_email, "name": "Tasko Workspace"},
+      "to": [{"email": receiver_email}],
+      "subject": "Tasko - Verification Code",
+      "htmlContent": (
+          "<html><body><h3>Welcome to Tasko Workspace!</h3><p>Your"
+          f" verification code is: <b>{otp_code}</b></p></body></html>"
+      ),
+  }
+
   try:
-    msg = MIMEMultipart()
-    msg["From"] = sender_email
-    msg["To"] = receiver_email
-    msg["Subject"] = "Tasko - Verification Code"
-
-    body = f"Your Tasko verification code is: {otp_code}\nWelcome aboard!"
-    msg.attach(MIMEText(body, "plain"))
-
-    server = smtplib.SMTP("smtp.gmail.com", 587)
-    server.starttls()
-    server.login(sender_email, sender_password)
-    server.sendmail(sender_email, receiver_email, msg.as_string())
-    server.quit()
-    print(f"OTP successfully sent to {receiver_email}")
-  except Exception as e:
-    print(f"Failed to send email: {e}")
-    print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
+    response = requests.post(url, json=payload, headers=headers, timeout=10)
+    if response.status_code in [200, 201, 202]:
+      print(f"Brevo OTP successfully sent to {receiver_email}")
+    else:
+      print(
+          f"Failed to send email via Brevo: {response.status_code} -"
+          f" {response.text}"
+      )
+      print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
+    except Exception as e:
+      print(f"Brevo request failed: {e}")
+      print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
 
 
 @app.route("/")
