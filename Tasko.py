@@ -1,6 +1,10 @@
 import datetime
 import os
 import base64
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from flask import Flask, jsonify, request, render_template_string
 from google import genai
 from google.genai import types
@@ -13,11 +17,12 @@ client = genai.Client() if os.environ.get("GEMINI_API_KEY") else None
 # In-memory databases
 USERS_DB = {}
 PENDING_USERS_DB = {}
+OTP_DB = {}
 TASKS_DB = []
 HISTORY_DB = []
 MESSAGES_DB = []
 
-# Single-file HTML/JS Frontend template with Theme Toggle, Time-Bound Tasks, & Live Chat
+# Single-file HTML/JS Frontend template with OTP Verification, Theme Toggle, Time-Bound Tasks, & Live Chat
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -66,13 +71,15 @@ HTML_TEMPLATE = """
         <!-- AUTH CONTAINER -->
         <div id="authContainer" class="card" style="max-width: 400px; margin: 50px auto;">
             <h2>Tasko Portal</h2>
+            
             <div id="loginForm">
                 <h3>Login</h3>
                 <input type="email" id="loginEmail" placeholder="Email">
                 <input type="password" id="loginPassword" placeholder="Password">
                 <button onclick="login()">Login</button>
-                <p>Don't have an account? <a href="#" onclick="toggleAuth(true)" style="color:#60a5fa;">Sign up</a></p>
+                <p>Don't have an account? <a href="#" onclick="toggleAuth('signup')" style="color:#60a5fa;">Sign up</a></p>
             </div>
+
             <div id="signupForm" class="hidden">
                 <h3>Sign Up</h3>
                 <input type="text" id="suName" placeholder="Full Name">
@@ -84,8 +91,16 @@ HTML_TEMPLATE = """
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
                 <input type="text" id="suCompanyId" placeholder="Workspace Company ID">
-                <button onclick="signup()">Register</button>
-                <p>Already have an account? <a href="#" onclick="toggleAuth(false)" style="color:#60a5fa;">Login</a></p>
+                <button onclick="registerAccount()">Send OTP Verification</button>
+                <p>Already have an account? <a href="#" onclick="toggleAuth('login')" style="color:#60a5fa;">Login</a></p>
+            </div>
+
+            <div id="otpForm" class="hidden">
+                <h3>Enter Email OTP</h3>
+                <p style="font-size:0.85em; color:var(--subtext);">We've sent a 6-digit verification code to your email.</p>
+                <input type="text" id="otpCode" placeholder="Enter 6-digit OTP" maxlength="6" style="text-align:center; font-size:1.2em; letter-spacing:4px;">
+                <button onclick="verifyOtp()">Verify & Complete Signup</button>
+                <p><a href="#" onclick="toggleAuth('signup')" style="color:#60a5fa;">Back to Sign Up</a></p>
             </div>
         </div>
 
@@ -154,14 +169,13 @@ HTML_TEMPLATE = """
     <script>
         let currentUser = JSON.parse(localStorage.getItem('tasko_user')) || null;
         let currentTheme = localStorage.getItem('tasko_theme') || 'dark';
+        let tempSignupData = {};
 
         window.onload = () => {
-            if (currentTheme === 'light') {
-                document.body.classList.add('light-theme');
-            }
+            if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
             if (currentUser) {
                 checkLoginState();
-                setInterval(loadWorkspaceChat, 3000); // Polling for live chat
+                setInterval(loadWorkspaceChat, 3000);
             }
         };
 
@@ -171,9 +185,10 @@ HTML_TEMPLATE = """
             localStorage.setItem('tasko_theme', currentTheme);
         }
 
-        function toggleAuth(isSignup) {
-            document.getElementById('loginForm').classList.toggle('hidden', isSignup);
-            document.getElementById('signupForm').classList.toggle('hidden', !isSignup);
+        function toggleAuth(formType) {
+            document.getElementById('loginForm').classList.toggle('hidden', formType !== 'login');
+            document.getElementById('signupForm').classList.toggle('hidden', formType !== 'signup');
+            document.getElementById('otpForm').classList.toggle('hidden', formType !== 'otp');
         }
 
         function toggleCompanyInput() {
@@ -183,8 +198,8 @@ HTML_TEMPLATE = """
             document.getElementById('suCompanyId').classList.toggle('hidden', isCeo);
         }
 
-        async function signup() {
-            let data = {
+        async function registerAccount() {
+            tempSignupData = {
                 name: document.getElementById('suName').value,
                 email: document.getElementById('suEmail').value,
                 password: document.getElementById('suPassword').value,
@@ -192,11 +207,26 @@ HTML_TEMPLATE = """
                 company_name: document.getElementById('suCompanyName').value,
                 company_id: document.getElementById('suCompanyId').value
             };
-            let res = await fetch('/api/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            if(!tempSignupData.name || !tempSignupData.email || !tempSignupData.password) {
+                alert("Please fill out all fields.");
+                return;
+            }
+            let res = await fetch('/api/signup-request', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(tempSignupData)});
             let result = await res.json();
             if(res.ok) {
-                alert("Registered successfully!");
-                currentUser = result.user; 
+                alert("OTP verification code sent to your email!");
+                toggleAuth('otp');
+            } else { alert(result.error); }
+        }
+
+        async function verifyOtp() {
+            let otp = document.getElementById('otpCode').value;
+            let payload = { email: tempSignupData.email, otp: otp, signup_data: tempSignupData };
+            let res = await fetch('/api/verify-otp', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+            let result = await res.json();
+            if(res.ok) {
+                alert("Email verified successfully! Logging you in.");
+                currentUser = result.user;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
                 checkLoginState();
             } else { alert(result.error); }
@@ -221,6 +251,7 @@ HTML_TEMPLATE = """
             localStorage.removeItem('tasko_user');
             document.getElementById('authContainer').classList.remove('hidden');
             document.getElementById('dashboardContainer').classList.add('hidden');
+            toggleAuth('login');
         }
 
         async function checkLoginState() {
@@ -403,21 +434,67 @@ HTML_TEMPLATE = """
 """
 
 
+def send_otp_email(receiver_email, otp_code):
+  sender_email = os.environ.get("SMTP_EMAIL")
+  sender_password = os.environ.get("SMTP_PASS")
+
+  if not sender_email or not sender_password:
+    print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
+    return
+
+  try:
+    msg = MIMEMultipart()
+    msg["From"] = sender_email
+    msg["To"] = receiver_email
+    msg["Subject"] = "Tasko - Verification Code"
+
+    body = f"Your Tasko verification code is: {otp_code}\nWelcome aboard!"
+    msg.attach(MIMEText(body, "plain"))
+
+    server = smtplib.SMTP("smtp.gmail.com", 587)
+    server.starttls()
+    server.login(sender_email, sender_password)
+    server.sendmail(sender_email, receiver_email, msg.as_string())
+    server.quit()
+    print(f"OTP successfully sent to {receiver_email}")
+  except Exception as e:
+    print(f"Failed to send email: {e}")
+    print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
+
+
 @app.route("/")
 def index():
   return render_template_string(HTML_TEMPLATE)
 
 
-@app.route("/api/signup", methods=["POST"])
-def signup():
+@app.route("/api/signup-request", methods=["POST"])
+def signup_request():
   data = request.json
   email = data.get("email")
-  name = data.get("name")
-  password = data.get("password")
-  role = data.get("role", "Employee")
-
   if email in USERS_DB or email in PENDING_USERS_DB:
     return jsonify({"error": "Email already registered."}), 400
+
+  otp = str(random.randint(100000, 999999))
+  OTP_DB[email] = otp
+  send_otp_email(email, otp)
+  return jsonify({"success": True, "message": "OTP generated and sent."})
+
+
+@app.route("/api/verify-otp", methods=["POST"])
+def verify_otp():
+  data = request.json
+  email = data.get("email")
+  user_otp = data.get("otp")
+  signup_data = data.get("signup_data", {})
+
+  if email not in OTP_DB or OTP_DB[email] != user_otp:
+    return jsonify({"error": "Invalid or expired OTP code."}), 400
+
+  OTP_DB.pop(email, None)
+
+  name = signup_data.get("name")
+  password = signup_data.get("password")
+  role = signup_data.get("role", "Employee")
 
   user_data = {
       "name": name,
@@ -428,11 +505,9 @@ def signup():
   }
 
   if role == "CEO":
-    import random
-
     company_id = str(random.randint(1000000000, 9999999999))
     user_data["company_id"] = company_id
-    user_data["company_name"] = data.get("company_name", "MyCorp")
+    user_data["company_name"] = signup_data.get("company_name", "MyCorp")
     user_data["status"] = "Approved"
     USERS_DB[email] = user_data
     HISTORY_DB.insert(
@@ -444,7 +519,7 @@ def signup():
         },
     )
   else:
-    company_id = data.get("company_id")
+    company_id = signup_data.get("company_id")
     user_data["company_id"] = company_id
     PENDING_USERS_DB[email] = user_data
 
