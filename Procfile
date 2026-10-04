@@ -1,1 +1,1 @@
-web: gunicorn Tasko:app
+web: gunicorn app:app
