@@ -297,7 +297,7 @@ HTML_TEMPLATE = """
 
                     <div style="margin-top:20px; border-top:1px solid var(--border-color); padding-top:20px;">
                         <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:8px;">Workspace Auto-Refresh Rate</label>
-                        <select id="settingsRefreshRate">
+                        <select id="settingsRefreshRate" onchange="updateRefreshRateSetting()">
                             <option value="3">Fast (3 seconds)</option>
                             <option value="10" selected>Balanced (10 seconds)</option>
                             <option value="30">Slow (30 seconds)</option>
@@ -311,15 +311,39 @@ HTML_TEMPLATE = """
     <script>
         let currentUser = JSON.parse(localStorage.getItem('tasko_user')) || null;
         let currentTheme = localStorage.getItem('tasko_theme') || 'dark';
+        let savedRefreshRate = localStorage.getItem('tasko_refresh_rate') || '10';
         let tempSignupData = {};
+        let workspaceRefreshInterval = null;
 
         window.onload = () => {
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
+            document.getElementById('settingsRefreshRate').value = savedRefreshRate;
             if (currentUser) {
                 checkLoginState();
                 setInterval(loadWorkspaceChat, 3000);
             }
         };
+
+        function updateRefreshRateSetting() {
+            savedRefreshRate = document.getElementById('settingsRefreshRate').value;
+            localStorage.setItem('tasko_refresh_rate', savedRefreshRate);
+            restartAutoRefreshInterval();
+        }
+
+        function restartAutoRefreshInterval() {
+            if (workspaceRefreshInterval) {
+                clearInterval(workspaceRefreshInterval);
+            }
+            let intervalMs = parseInt(savedRefreshRate) * 1000;
+            workspaceRefreshInterval = setInterval(() => {
+                if (!currentUser) return;
+                loadDashboardData();
+                if (currentUser.role === 'CEO') {
+                    loadPendingUsers();
+                    loadEmployeesManagement();
+                }
+            }, intervalMs);
+        }
 
         function toggleTheme() {
             document.body.classList.toggle('light-theme');
@@ -398,6 +422,7 @@ HTML_TEMPLATE = """
         function logout() {
             currentUser = null;
             localStorage.removeItem('tasko_user');
+            if (workspaceRefreshInterval) clearInterval(workspaceRefreshInterval);
             document.getElementById('authContainer').style.display = 'flex';
             document.getElementById('dashboardContainer').classList.add('hidden');
             toggleAuth('login');
@@ -428,6 +453,7 @@ HTML_TEMPLATE = """
             }
             loadDashboardData();
             loadWorkspaceChat();
+            restartAutoRefreshInterval();
         }
 
         async function updateCompanyName() {
@@ -913,7 +939,6 @@ def verify_proof():
             " Respond with your evaluation clearly stating whether it is Completed or Failed, followed by a brief reason."
         )
         
-        # Updated to use the correct google-genai SDK call structure
         response = client.models.generate_content(
             model="gemini-3.8-flash",
             contents=[
