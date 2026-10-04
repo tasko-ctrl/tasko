@@ -997,7 +997,7 @@ def get_employees_list():
     })
 
 
-@app.route("/api/admin/kick-employee", new_methods=["POST"], methods=["POST"])
+@app.route("/api/admin/kick-employee", methods=["POST"])
 def kick_employee():
     data = request.json
     email = data.get("email")
