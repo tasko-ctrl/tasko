@@ -10,7 +10,8 @@ from google.genai import types
 
 app = Flask(__name__)
 
-client = genai.Client() if os.environ.get("GEMINI_API_KEY") else None
+# Correctly initialize the Google GenAI client using GEMINI_API_KEY
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY")) if os.environ.get("GEMINI_API_KEY") else None
 
 USERS_DB = {}
 PENDING_USERS_DB = {}
@@ -911,7 +912,8 @@ def verify_proof():
             f"Evaluate if the uploaded image proves task completion for: '{task['title']}'."
             " Respond with your evaluation clearly stating whether it is Completed or Failed, followed by a brief reason."
         )
-        # Using client.chats or standard generate_content correctly
+        
+        # Updated to use the correct google-genai SDK call structure
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
@@ -921,7 +923,6 @@ def verify_proof():
         )
         ai_text = response.text or "Completed successfully."
         
-        # Explicitly update the task status in our DB based on AI evaluation
         task["status"] = "Completed" if "Completed" in ai_text or "pass" in ai_text.lower() else "Failed"
         task["ai_comment"] = ai_text
 
@@ -996,7 +997,7 @@ def get_employees_list():
     })
 
 
-@app.route("/api/admin/kick-employee", methods=["POST"])
+@app.route("/api/admin/kick-employee", new_methods=["POST"], methods=["POST"])
 def kick_employee():
     data = request.json
     email = data.get("email")
