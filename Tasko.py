@@ -548,6 +548,7 @@ HTML_TEMPLATE = """
                 tasksContainer.innerHTML = "<span style='color:var(--subtext);'>No tasks found.</span>";
             } else {
                 tasksContainer.innerHTML = userTasks.map((t, idx) => {
+                    let globalIdx = data.tasks.indexOf(t);
                     let statusBadge = t.status === 'Completed' ? '<span class="badge-done">Completed</span>' : 
                                       t.status === 'Failed' ? '<span class="badge-failed">Failed</span>' : 
                                       '<span class="badge-pending">Pending Proof</span>';
@@ -557,8 +558,8 @@ HTML_TEMPLATE = """
                         actionHtml = `
                             <div style="margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
                                 <label style="font-size:0.85em; display:block; margin-bottom:6px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
-                                <input type="file" id="proofFile_${idx}" accept="image/*" style="margin-bottom:8px; padding:6px;">
-                                <button onclick="submitProof(${data.tasks.indexOf(t)})" style="background:#059669; padding:8px 14px; font-size:0.9em; width:auto;">Submit Proof</button>
+                                <input type="file" id="proofFile_${globalIdx}" accept="image/*" style="margin-bottom:8px; padding:6px;">
+                                <button onclick="submitProof(${globalIdx})" style="background:#059669; padding:8px 14px; font-size:0.9em; width:auto;">Submit Proof</button>
                             </div>
                         `;
                     }
@@ -633,7 +634,10 @@ HTML_TEMPLATE = """
 
         async function submitProof(taskIndex) {
             let fileInput = document.getElementById(`proofFile_${taskIndex}`);
-            if(fileInput.files.length === 0) { alert("Please select an image file."); return; }
+            if(!fileInput || fileInput.files.length === 0) { 
+                alert("Please select an image file."); 
+                return; 
+            }
             let file = fileInput.files[0];
             let reader = new FileReader();
             reader.readAsDataURL(file);
@@ -867,7 +871,7 @@ def verify_proof():
         )
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 prompt,
