@@ -15,7 +15,6 @@ client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY")) if os.environ.ge
 
 USERS_DB = {}
 PENDING_USERS_DB = {}
-OTP_DB = {}
 TASKS_DB = []
 DAILY_ROUTINES_DB = []
 DAILY_LOGS_DB = {}  # Format: { "YYYY-MM-DD": { routine_index: status } }
@@ -111,16 +110,8 @@ HTML_TEMPLATE = """
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
                 <input type="text" id="suCompanyId" placeholder="Workspace Company ID">
-                <button onclick="registerAccount()">Send Verification Code</button>
+                <button onclick="registerAccount()">Sign Up</button>
                 <p style="margin-top:16px; font-size:0.9em; text-align:center;">Already have an account? <a href="#" onclick="toggleAuth('login')">Sign in</a></p>
-            </div>
-
-            <div id="otpForm" class="hidden">
-                <h3 style="color:var(--subtext); font-size:1em; margin-bottom:6px;">Verify your email</h3>
-                <p style="font-size:0.85em; color:var(--subtext); margin-bottom:16px;">Enter the 6-digit verification code sent to your inbox.</p>
-                <input type="text" id="otpCode" placeholder="000000" maxlength="6" style="text-align:center; font-size:1.4em; letter-spacing:6px;">
-                <button onclick="verifyOtp()">Verify Code</button>
-                <p style="margin-top:16px; font-size:0.9em; text-align:center;"><a href="#" onclick="toggleAuth('signup')">Back to Sign Up</a></p>
             </div>
         </div>
     </div>
@@ -312,7 +303,6 @@ HTML_TEMPLATE = """
         let currentUser = JSON.parse(localStorage.getItem('tasko_user')) || null;
         let currentTheme = localStorage.getItem('tasko_theme') || 'dark';
         let savedRefreshRate = localStorage.getItem('tasko_refresh_rate') || '10';
-        let tempSignupData = {};
         let workspaceRefreshInterval = null;
 
         window.onload = () => {
@@ -361,7 +351,6 @@ HTML_TEMPLATE = """
         function toggleAuth(formType) {
             document.getElementById('loginForm').classList.toggle('hidden', formType !== 'login');
             document.getElementById('signupForm').classList.toggle('hidden', formType !== 'signup');
-            document.getElementById('otpForm').classList.toggle('hidden', formType !== 'otp');
         }
 
         function toggleCompanyInput() {
@@ -372,7 +361,7 @@ HTML_TEMPLATE = """
         }
 
         async function registerAccount() {
-            tempSignupData = {
+            let signupData = {
                 name: document.getElementById('suName').value,
                 email: document.getElementById('suEmail').value,
                 password: document.getElementById('suPassword').value,
@@ -380,25 +369,14 @@ HTML_TEMPLATE = """
                 company_name: document.getElementById('suCompanyName').value,
                 company_id: document.getElementById('suCompanyId').value
             };
-            if(!tempSignupData.name || !tempSignupData.email || !tempSignupData.password) {
+            if(!signupData.name || !signupData.email || !signupData.password) {
                 alert("Please fill out all fields.");
                 return;
             }
-            let res = await fetch('/api/signup-request', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(tempSignupData)});
+            let res = await fetch('/api/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(signupData)});
             let result = await res.json();
             if(res.ok) {
-                alert("Verification code sent to your email!");
-                toggleAuth('otp');
-            } else { alert(result.error); }
-        }
-
-        async function verifyOtp() {
-            let otp = document.getElementById('otpCode').value;
-            let payload = { email: tempSignupData.email, otp: otp, signup_data: tempSignupData };
-            let res = await fetch('/api/verify-otp', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-            let result = await res.json();
-            if(res.ok) {
-                alert("Verified successfully!");
+                alert("Account created successfully!");
                 currentUser = result.user;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
                 checkLoginState();
@@ -710,72 +688,21 @@ HTML_TEMPLATE = """
 """
 
 
-def send_otp_email(receiver_email, otp_code):
-    brevo_api_key = os.environ.get("BREVO_API_KEY")
-    sender_email = os.environ.get("SENDER_EMAIL") or os.environ.get("SMTP_EMAIL")
-
-    if not brevo_api_key or not sender_email:
-        print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
-        return
-
-    url = "https://api.brevo.com/v3/smtp/email"
-    headers = {
-        "accept": "application/json",
-        "api-key": brevo_api_key,
-        "content-type": "application/json",
-    }
-    payload = {
-        "sender": {"email": sender_email, "name": "Tasko Workspace"},
-        "to": [{"email": receiver_email}],
-        "subject": "Tasko - Verification Code",
-        "htmlContent": f"<html><body><h3>Welcome to Tasko Workspace!</h3><p>Your verification code is: <b>{otp_code}</b></p></body></html>",
-    }
-
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        if response.status_code in [200, 201, 202]:
-            print(f"Brevo OTP successfully sent to {receiver_email}")
-        else:
-            print(f"Failed to send email via Brevo: {response.status_code} - {response.text}")
-            print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
-    except Exception as e:
-        print(f"Error sending email: {e}")
-        print(f"\n[TASKO OTP FALLBACK] Code for {receiver_email}: {otp_code}\n")
-
-
 @app.route("/")
 def index():
     return render_template_string(HTML_TEMPLATE)
 
 
-@app.route("/api/signup-request", methods=["POST"])
-def signup_request():
+@app.route("/api/signup", methods=["POST"])
+def signup():
     data = request.json
     email = data.get("email")
     if email in USERS_DB or email in PENDING_USERS_DB:
         return jsonify({"error": "Email already registered."}), 400
 
-    otp = str(random.randint(100000, 999999))
-    OTP_DB[email] = otp
-    send_otp_email(email, otp)
-    return jsonify({"success": True, "message": "OTP generated and sent."})
-
-
-@app.route("/api/verify-otp", methods=["POST"])
-def verify_otp():
-    data = request.json
-    email = data.get("email")
-    user_otp = data.get("otp")
-    signup_data = data.get("signup_data", {})
-
-    if email not in OTP_DB or OTP_DB[email] != user_otp:
-        return jsonify({"error": "Invalid or expired OTP code."}), 400
-
-    OTP_DB.pop(email, None)
-
-    name = signup_data.get("name")
-    password = signup_data.get("password")
-    role = signup_data.get("role", "Employee")
+    name = data.get("name")
+    password = data.get("password")
+    role = data.get("role", "Employee")
 
     user_data = {
         "name": name,
@@ -788,7 +715,7 @@ def verify_otp():
     if role == "CEO":
         company_id = str(random.randint(1000000000, 9999999999))
         user_data["company_id"] = company_id
-        user_data["company_name"] = signup_data.get("company_name", "MyCorp")
+        user_data["company_name"] = data.get("company_name", "MyCorp")
         user_data["status"] = "Approved"
         USERS_DB[email] = user_data
         HISTORY_DB.insert(
@@ -800,7 +727,7 @@ def verify_otp():
             },
         )
     else:
-        company_id = signup_data.get("company_id")
+        company_id = data.get("company_id")
         user_data["company_id"] = company_id
         PENDING_USERS_DB[email] = user_data
 
@@ -940,7 +867,7 @@ def verify_proof():
         )
         
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model="gemini-2.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 prompt,
