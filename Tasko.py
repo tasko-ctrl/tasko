@@ -556,10 +556,10 @@ HTML_TEMPLATE = """
                     let actionHtml = '';
                     if(currentUser.role !== 'CEO') {
                         actionHtml = `
-                            <div style="margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+                            <div style="margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;" id="taskProofBox_${globalIdx}">
                                 <label style="font-size:0.85em; display:block; margin-bottom:6px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
                                 <input type="file" id="proofFile_${globalIdx}" accept="image/*" style="margin-bottom:8px; padding:6px;">
-                                <button onclick="submitProof(this, ${globalIdx})" style="background:#059669; padding:8px 14px; font-size:0.9em; width:auto;">Submit Proof</button>
+                                <button onclick="submitProof(${globalIdx})" style="background:#059669; padding:8px 14px; font-size:0.9em; width:auto;">Submit Proof</button>
                             </div>
                         `;
                     }
@@ -632,9 +632,8 @@ HTML_TEMPLATE = """
                 workspaceHistory.map(h => `<tr><td style="color:var(--subtext); width:140px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
         }
 
-        async function submitProof(btnEl, taskIndex) {
-            let container = btnEl.parentElement;
-            let fileInput = container.querySelector('input[type="file"]');
+        async function submitProof(taskIndex) {
+            let fileInput = document.getElementById(`proofFile_${taskIndex}`);
             if(!fileInput || fileInput.files.length === 0) { 
                 alert("Please select an image file."); 
                 return; 
