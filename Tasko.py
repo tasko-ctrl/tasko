@@ -871,7 +871,7 @@ def verify_proof():
         )
         
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model="gemini-2.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 prompt,
@@ -948,7 +948,7 @@ def get_employees_list():
         "employees": [
             {"name": u.get("name"), "email": u.get("email"), "role": u.get("role")}
             for u in USERS_DB.values()
-            if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
+            if str(u.get("company_id")) == str(company_id) and u.get("status"] == "Approved"
         ]
     })
 
