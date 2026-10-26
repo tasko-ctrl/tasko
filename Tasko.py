@@ -1110,10 +1110,16 @@ def get_employees_list():
         "employees": [
             {"name": u.get("name"), "email": u.get("email"), "role": u.get("role"), "stance": u.get("stance")}
             for u in USERS_DB.values()
-            if str(u.get("company_id")) == str(company_id) and u.get("status"] == "Approved"
+@app.route("/api/admin/employees-list", methods=["GET"])
+def get_employees_list():
+    company_id = request.args.get("company_id")
+    return jsonify({
+        "employees": [
+            {"name": u.get("name"), "email": u.get("email"), "role": u.get("role"), "stance": u.get("stance")}
+            for u in USERS_DB.values()
+            if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
         ]
     })
-
 
 @app.route("/api/admin/kick-employee", methods=["POST"])
 def kick_employee():
