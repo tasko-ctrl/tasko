@@ -3,6 +3,7 @@ import os
 import base64
 import random
 import io
+import json
 from flask import Flask, jsonify, request, render_template_string, send_file
 from google import genai
 from google.api_core import exceptions
@@ -15,11 +16,27 @@ client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY")) if os.environ.ge
 
 USERS_DB = {}
 PENDING_USERS_DB = {}
-TASKS_DB = []
 DAILY_ROUTINES_DB = []
 DAILY_LOGS_DB = {}  # Format: { "YYYY-MM-DD": { routine_index: status } }
 HISTORY_DB = []
 MESSAGES_DB = []
+
+TASKS_FILE = "tasks.json"
+
+def load_tasks():
+    if os.path.exists(TASKS_FILE):
+        try:
+            with open(TASKS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_tasks():
+    with open(TASKS_FILE, "w") as f:
+        json.dump(TASKS_DB, f)
+
+TASKS_DB = load_tasks()
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -833,7 +850,6 @@ def index():
 
 @app.route("/favicon.ico")
 def favicon():
-    # Programmatically generates a crisp 64x64 PNG app icon to guarantee favicon display
     from PIL import Image, ImageDraw
     img = Image.new("RGBA", (64, 64), (11, 15, 23, 255))
     draw = ImageDraw.Draw(img)
@@ -960,6 +976,7 @@ def add_task():
         "ai_comment": "",
         "company_id": company_id,
     })
+    save_tasks()
 
     HISTORY_DB.insert(
         0,
@@ -1036,6 +1053,7 @@ def verify_proof():
     if not client:
         task["status"] = "Completed"
         task["ai_comment"] = "Simulated verification (API key missing)."
+        save_tasks()
         return jsonify({"success": True, "status": "Completed"})
 
     try:
@@ -1046,7 +1064,7 @@ def verify_proof():
         )
         
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model="gemini-2.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 prompt,
@@ -1056,6 +1074,7 @@ def verify_proof():
         
         task["status"] = "Completed" if "Completed" in ai_text or "pass" in ai_text.lower() else "Failed"
         task["ai_comment"] = ai_text
+        save_tasks()
 
         HISTORY_DB.insert(
             0,
