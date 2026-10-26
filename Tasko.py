@@ -29,21 +29,23 @@ HTML_TEMPLATE = """
     <title>Tasko - Workspace Manager</title>
     <style>
         :root {
-            --bg-color: #0b0f19;
-            --sidebar-bg: #0f1624;
-            --card-bg: #121826;
-            --text-color: #f3f4f6;
-            --border-color: #1f293d;
-            --input-bg: #0d121f;
-            --subtext: #8a99ad;
+            --bg-color: #07090e;
+            --sidebar-bg: #0b0f17;
+            --card-bg: #0f1523;
+            --card-hover: #141c2e;
+            --text-color: #ededef;
+            --border-color: #1a2234;
+            --input-bg: #090d16;
+            --subtext: #8a95a5;
             --accent: #5e6ad2;
             --accent-hover: #727ffd;
-            --ease-out-cubic: cubic-bezier(0.16, 1, 0.3, 1);
+            --ease-linear: cubic-bezier(0.16, 1, 0.3, 1);
         }
         .light-theme {
             --bg-color: #f8fafc;
             --sidebar-bg: #f1f5f9;
             --card-bg: #ffffff;
+            --card-hover: #fcfdff;
             --text-color: #0f172a;
             --border-color: #e2e8f0;
             --input-bg: #f8fafc;
@@ -51,46 +53,52 @@ HTML_TEMPLATE = """
             --accent: #5e6ad2;
             --accent-hover: #4f58bc;
         }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.3s var(--ease-out-cubic), color 0.3s var(--ease-out-cubic); }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.3s var(--ease-linear), color 0.3s var(--ease-linear); }
         
-        .sidebar { width: 260px; min-width: 260px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; height: 100vh; }
-        .sidebar-brand { font-size: 1.15em; font-weight: 600; display: flex; align-items: center; gap: 10px; margin-bottom: 30px; color: var(--text-color); letter-spacing: -0.01em; }
-        .sidebar-menu { display: flex; flex-direction: column; gap: 4px; flex: 1; overflow-y: auto; }
+        .sidebar { width: 265px; min-width: 265px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 24px; box-sizing: border-box; height: 100vh; }
+        .sidebar-brand { font-size: 1.15em; font-weight: 600; display: flex; align-items: center; gap: 10px; margin-bottom: 32px; color: var(--text-color); letter-spacing: -0.01em; }
+        .sidebar-menu { display: flex; flex-direction: column; gap: 6px; flex: 1; overflow-y: auto; }
         
-        .nav-item { padding: 9px 12px; border-radius: 6px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.9em; transition: all 0.15s var(--ease-out-cubic); border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; box-sizing: border-box; }
-        .nav-item:hover { background: rgba(255,255,255,0.03); color: var(--text-color); transform: translateX(2px); }
-        .nav-item.active { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+        .nav-item { padding: 10px 14px; border-radius: 8px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.9em; transition: all 0.2s var(--ease-linear); border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; box-sizing: border-box; position: relative; }
+        .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-color); transform: translateX(3px); }
+        .nav-item.active { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
 
-        .main-content { flex: 1; overflow-y: auto; padding: 40px; box-sizing: border-box; }
+        .main-content { flex: 1; overflow-y: auto; padding: 48px; box-sizing: border-box; }
         
-        /* Linear Smooth Fade-In Animation */
-        @keyframes linearFadeIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes linearEntrance {
+            from { opacity: 0; transform: translateY(10px) scale(0.99); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        .section-view { animation: linearFadeIn 0.25s var(--ease-out-cubic) forwards; }
+        .section-view { animation: linearEntrance 0.3s var(--ease-linear) forwards; }
 
-        .card { background: var(--card-bg); padding: 28px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 24px -4px rgba(0,0,0,0.4); border: 1px solid var(--border-color); transition: transform 0.2s var(--ease-out-cubic), border-color 0.2s var(--ease-out-cubic); }
-        .card:hover { border-color: rgba(94, 106, 210, 0.4); }
+        .card { background: var(--card-bg); padding: 32px; border-radius: 14px; margin-bottom: 24px; box-shadow: 0 8px 30px -6px rgba(0,0,0,0.5); border: 1px solid var(--border-color); transition: all 0.25s var(--ease-linear); position: relative; overflow: hidden; }
+        .card:hover { border-color: rgba(94, 106, 210, 0.5); transform: translateY(-2px); box-shadow: 0 12px 40px -8px rgba(94, 106, 210, 0.2); }
         
-        input, select, textarea { padding: 10px 14px; margin: 6px 0 16px 0; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); width: 100%; box-sizing: border-box; font-size: 0.9em; outline: none; transition: all 0.2s var(--ease-out-cubic); }
-        input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.15); }
+        input, select, textarea { padding: 12px 16px; margin: 8px 0 18px 0; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); width: 100%; box-sizing: border-box; font-size: 0.9em; outline: none; transition: all 0.2s var(--ease-linear); }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.15); background: var(--card-bg); }
         
-        button { background: var(--accent); cursor: pointer; font-weight: 500; border: none; color: white; padding: 10px 16px; border-radius: 6px; width: 100%; font-size: 0.9em; transition: all 0.15s var(--ease-out-cubic); }
-        button:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(94, 106, 210, 0.3); }
-        button:active { transform: translateY(0); }
+        button { background: var(--accent); cursor: pointer; font-weight: 500; border: none; color: white; padding: 12px 20px; border-radius: 8px; width: 100%; font-size: 0.9em; transition: all 0.2s var(--ease-linear); display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(94, 106, 210, 0.4); }
+        button:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(94, 106, 210, 0.5); }
+        button:active { transform: translateY(0) scale(0.98); box-shadow: 0 2px 8px rgba(94, 106, 210, 0.3); }
         
         .hidden { display: none !important; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
-        th, td { padding: 12px; border-bottom: 1px solid var(--border-color); text-align: left; }
-        th { background: var(--input-bg); color: var(--subtext); font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.9em; }
+        th, td { padding: 14px; border-bottom: 1px solid var(--border-color); text-align: left; }
+        th { background: var(--input-bg); color: var(--subtext); font-weight: 600; text-transform: uppercase; font-size: 0.75em; letter-spacing: 0.05em; }
         
-        .badge-done { background: rgba(5, 150, 105, 0.15); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.3); padding: 3px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 600; }
-        .badge-pending { background: rgba(217, 119, 6, 0.15); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.3); padding: 3px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 600; }
-        .badge-failed { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.3); padding: 3px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 600; }
+        .badge-done { background: rgba(5, 150, 105, 0.15); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+        .badge-pending { background: rgba(217, 119, 6, 0.15); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+        .badge-failed { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
         
-        .chat-box { height: 380px; overflow-y: scroll; border: 1px solid var(--border-color); background: var(--input-bg); padding: 16px; border-radius: 8px; margin-bottom: 12px; }
-        .chat-message { margin-bottom: 12px; font-size: 0.9em; line-height: 1.5; animation: linearFadeIn 0.2s var(--ease-out-cubic); }
+        @keyframes pulseGlow {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 12px currentColor; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .pulsing-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulseGlow 2s infinite ease-in-out; }
+
+        .chat-box { height: 400px; overflow-y: scroll; border: 1px solid var(--border-color); background: var(--input-bg); padding: 18px; border-radius: 10px; margin-bottom: 16px; scroll-behavior: smooth; }
+        .chat-message { margin-bottom: 14px; font-size: 0.9em; line-height: 1.5; animation: linearEntrance 0.25s var(--ease-linear); }
         h2, h3, h4 { margin-top: 0; font-weight: 600; letter-spacing: -0.01em; }
         a { color: var(--accent); text-decoration: none; transition: color 0.15s; }
         a:hover { color: var(--accent-hover); text-decoration: underline; }
@@ -99,44 +107,44 @@ HTML_TEMPLATE = """
 <body>
     <!-- AUTH CONTAINER -->
     <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
-        <div class="card" style="width: 100%; max-width: 400px; margin: 0; animation: linearFadeIn 0.3s var(--ease-out-cubic);">
-            <div style="display:flex; align-items:center; gap:10px; margin-bottom:24px;">
-                <div style="width:10px; height:10px; background:var(--accent); border-radius:50%; box-shadow: 0 0 10px var(--accent);"></div>
-                <h2 style="margin:0; font-size: 1.25em;">Tasko Workspace</h2>
+        <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: linearEntrance 0.4s var(--ease-linear);">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:28px;">
+                <div style="width:10px; height:10px; background:var(--accent); border-radius:50%; box-shadow: 0 0 16px var(--accent);"></div>
+                <h2 style="margin:0; font-size: 1.3em; letter-spacing:-0.02em;">Tasko Workspace</h2>
             </div>
             
             <div id="loginForm">
-                <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:16px; font-weight: 500;">Sign in to your account</h3>
-                <input type="email" id="loginEmail" placeholder="Email address">
-                <input type="password" id="loginPassword" placeholder="Password">
-                <button onclick="login()">Continue</button>
-                <p style="margin-top:20px; font-size:0.85em; text-align:center; color:var(--subtext);">Don't have an account? <a href="#" onclick="toggleAuth('signup')">Sign up</a></p>
+                <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Sign in to your account</h3>
+                <input type="email" id="loginEmail" placeholder="name@company.com">
+                <input type="password" id="loginPassword" placeholder="••••••••••••">
+                <button onclick="login()">Continue to Workspace</button>
+                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Don't have an account? <a href="#" onclick="toggleAuth('signup')">Sign up</a></p>
             </div>
 
             <div id="signupForm" class="hidden">
-                <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:16px; font-weight: 500;">Create a new account</h3>
+                <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Create a new account</h3>
                 <input type="text" id="suName" placeholder="Full Name">
-                <input type="email" id="suEmail" placeholder="Email address">
-                <input type="password" id="suPassword" placeholder="Password">
+                <input type="email" id="suEmail" placeholder="name@company.com">
+                <input type="password" id="suPassword" placeholder="••••••••••••">
                 <select id="suRole" onchange="toggleCompanyInput()">
                     <option value="Employee">Employee</option>
                     <option value="CEO">CEO (Create Workspace)</option>
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
                 <input type="text" id="suCompanyId" placeholder="Workspace Company ID">
-                <button onclick="registerAccount()">Sign Up</button>
-                <p style="margin-top:20px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="#" onclick="toggleAuth('login')">Sign in</a></p>
+                <button onclick="registerAccount()">Create Account</button>
+                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="#" onclick="toggleAuth('login')">Sign in</a></p>
             </div>
         </div>
     </div>
 
     <!-- PENDING APPROVAL WAITING SCREEN -->
     <div id="waitingContainer" class="hidden" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
-        <div class="card" style="width: 100%; max-width: 400px; margin: 0; text-align:center; padding: 40px 28px; animation: linearFadeIn 0.3s var(--ease-out-cubic);">
-            <div style="width:12px; height:12px; background:#fbbf24; border-radius:50%; margin:0 auto 20px auto; box-shadow: 0 0 12px #fbbf24;"></div>
-            <h2 style="margin-bottom:10px;">Waiting for CEO Approval</h2>
-            <p style="color:var(--subtext); font-size:0.9em; line-height:1.5; margin-bottom:28px;">Your account has been created. The workspace CEO needs to review and approve your request before you can enter.</p>
-            <button onclick="logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color);">Sign Out</button>
+        <div class="card" style="width: 100%; max-width: 420px; margin: 0; text-align:center; padding: 44px 32px; animation: linearEntrance 0.4s var(--ease-linear);">
+            <div style="width:12px; height:12px; background:#fbbf24; border-radius:50%; margin:0 auto 20px auto; box-shadow: 0 0 16px #fbbf24; animation: pulseGlow 1.5s infinite;"></div>
+            <h2 style="margin-bottom:12px;">Waiting for CEO Approval</h2>
+            <p style="color:var(--subtext); font-size:0.9em; line-height:1.6; margin-bottom:32px;">Your account has been registered. The workspace CEO needs to review and approve your request before you can enter.</p>
+            <button onclick="logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Sign Out</button>
         </div>
     </div>
 
@@ -145,7 +153,7 @@ HTML_TEMPLATE = """
         <!-- LEFT SIDEBAR -->
         <div class="sidebar">
             <div class="sidebar-brand">
-                <div style="width:8px; height:8px; background:var(--accent); border-radius:50%; box-shadow: 0 0 8px var(--accent);"></div>
+                <div style="width:8px; height:8px; background:var(--accent); border-radius:50%; box-shadow: 0 0 10px var(--accent);"></div>
                 <span id="brandCompanyName">Tasko Workspace</span>
             </div>
             
@@ -160,10 +168,10 @@ HTML_TEMPLATE = """
                 <button class="nav-item" onclick="switchSection('settingsSection', this)">⚙ Settings</button>
             </div>
 
-            <div style="border-top:1px solid var(--border-color); padding-top:15px; margin-top:auto;">
+            <div style="border-top:1px solid var(--border-color); padding-top:16px; margin-top:auto;">
                 <div style="font-size:0.85em; color:var(--text-color); font-weight:600;" id="sidebarUserName">User</div>
-                <div style="font-size:0.75em; color:var(--subtext); margin-bottom:12px;" id="sidebarUserRole">Role</div>
-                <button onclick="logout()" style="background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); padding:6px; font-size:0.85em;">Logout</button>
+                <div style="font-size:0.75em; color:var(--subtext); margin-bottom:14px;" id="sidebarUserRole">Role</div>
+                <button onclick="logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
             </div>
         </div>
 
@@ -174,7 +182,7 @@ HTML_TEMPLATE = """
                 <div class="card">
                     <h2>Assigned Tasks & Routines</h2>
                     <p style="font-size:0.9em; color:var(--subtext);">Review your assigned tasks and upload image proofs for instant AI verification.</p>
-                    <div id="myTasksList" style="margin-top:15px;">No tasks found.</div>
+                    <div id="myTasksList" style="margin-top:20px;">No tasks found.</div>
                 </div>
             </div>
 
@@ -183,7 +191,7 @@ HTML_TEMPLATE = """
                 <div class="card">
                     <h2>Daily Recurring Routines</h2>
                     <p style="font-size:0.9em; color:var(--subtext);">These routines reset every single day. Complete them daily!</p>
-                    <div id="dailyRoutinesList" style="margin-top:15px;">No daily routines set for this workspace.</div>
+                    <div id="dailyRoutinesList" style="margin-top:20px;">No daily routines set for this workspace.</div>
                 </div>
             </div>
 
@@ -211,7 +219,7 @@ HTML_TEMPLATE = """
                         <option value="High">High Priority</option>
                     </select>
                     
-                    <button onclick="createTask()" style="margin-top:10px;">Assign Task to Team Member</button>
+                    <button onclick="createTask()" style="margin-top:12px;">Assign Task to Team Member</button>
                 </div>
             </div>
 
@@ -229,9 +237,9 @@ HTML_TEMPLATE = """
                         <option value="">Select Employee</option>
                     </select>
                     
-                    <button onclick="createDailyRoutine()" style="margin-top:10px;">Add Auto-Daily Routine</button>
+                    <button onclick="createDailyRoutine()" style="margin-top:12px;">Add Auto-Daily Routine</button>
 
-                    <h4 style="margin-top:25px; font-size:0.95em; color:var(--subtext);">Active Daily Routines</h4>
+                    <h4 style="margin-top:28px; font-size:0.95em; color:var(--subtext);">Active Daily Routines</h4>
                     <div id="configRoutinesList">No routines configured.</div>
                 </div>
             </div>
@@ -242,22 +250,22 @@ HTML_TEMPLATE = """
                     <h2>Employee Approvals & Management</h2>
                     <p style="font-size:0.9em; color:var(--subtext);">Manage workspace access and active team members.</p>
                     
-                    <h4 style="margin-top:20px; font-size:0.95em; color:var(--subtext);">Pending Requests</h4>
-                    <div id="pendingUsersList" style="margin-bottom:20px;">No pending users.</div>
+                    <h4 style="margin-top:24px; font-size:0.95em; color:var(--subtext);">Pending Requests</h4>
+                    <div id="pendingUsersList" style="margin-bottom:24px;">No pending users.</div>
 
-                    <h4 style="margin-top:20px; font-size:0.95em; color:var(--subtext);">Active Workspace Employees</h4>
+                    <h4 style="margin-top:24px; font-size:0.95em; color:var(--subtext);">Active Workspace Employees</h4>
                     <div id="employeesManageList">No employees in workspace.</div>
                 </div>
             </div>
 
             <!-- SECTION: TEAM CHAT -->
             <div id="chatSection" class="section-view hidden">
-                <div class="card" style="height:calc(100vh - 100px); display:flex; flex-direction:column;">
+                <div class="card" style="height:calc(100vh - 120px); display:flex; flex-direction:column;">
                     <h2>Live Workspace Chat</h2>
                     <div id="chatBox" class="chat-box" style="flex:1;"></div>
-                    <div style="display:flex; gap:10px; margin-top:auto;">
+                    <div style="display:flex; gap:12px; margin-top:auto;">
                         <input type="text" id="chatInput" placeholder="Type a message to the team..." onkeydown="if(event.key==='Enter') sendChatMessage()" style="margin:0;">
-                        <button onclick="sendChatMessage()" style="width: auto; margin:0; padding:0 24px;">Send</button>
+                        <button onclick="sendChatMessage()" style="width: auto; margin:0; padding:0 28px;">Send</button>
                     </div>
                 </div>
             </div>
@@ -284,26 +292,26 @@ HTML_TEMPLATE = """
                     <h2>Workspace Settings</h2>
                     <p style="font-size:0.9em; color:var(--subtext);">Customize your workspace appearance and preferences.</p>
                     
-                    <div style="margin-top:20px;">
+                    <div style="margin-top:24px;">
                         <label style="font-size:0.85em; color:var(--subtext);">Workspace Company Name</label>
-                        <div style="display:flex; gap:10px;">
+                        <div style="display:flex; gap:12px;">
                             <input type="text" id="settingsCompanyName" placeholder="MyCorp">
-                            <button onclick="updateCompanyName()" style="width:auto; margin:6px 0 16px 0;">Save</button>
+                            <button onclick="updateCompanyName()" style="width:auto; margin:8px 0 18px 0; padding:0 20px;">Save</button>
                         </div>
                     </div>
 
-                    <div style="margin-top:10px;">
+                    <div style="margin-top:12px;">
                         <label style="font-size:0.85em; color:var(--subtext);">Workspace ID (Read-only)</label>
                         <input type="text" id="settingsCompanyId" readonly style="opacity:0.7; cursor:not-allowed;">
                     </div>
 
-                    <div style="margin-top:20px; border-top:1px solid var(--border-color); padding-top:20px;">
-                        <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:8px;">Appearance Theme</label>
-                        <button onclick="toggleTheme()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); width:auto; padding:8px 16px;">🌓 Toggle Dark / Light Mode</button>
+                    <div style="margin-top:24px; border-top:1px solid var(--border-color); padding-top:24px;">
+                        <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:10px;">Appearance Theme</label>
+                        <button onclick="toggleTheme()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); width:auto; padding:10px 18px; box-shadow:none;">🌓 Toggle Dark / Light Mode</button>
                     </div>
 
-                    <div style="margin-top:20px; border-top:1px solid var(--border-color); padding-top:20px;">
-                        <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:8px;">Workspace Auto-Refresh Rate</label>
+                    <div style="margin-top:24px; border-top:1px solid var(--border-color); padding-top:24px;">
+                        <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:10px;">Workspace Auto-Refresh Rate</label>
                         <select id="settingsRefreshRate" onchange="updateRefreshRateSetting()">
                             <option value="3">Fast (3 seconds)</option>
                             <option value="10" selected>Balanced (10 seconds)</option>
@@ -497,9 +505,9 @@ HTML_TEMPLATE = """
                 return;
             }
             container.innerHTML = data.pending_users.map(u => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border-color);">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border-color);">
                     <span>${u.name} (${u.email})</span>
-                    <button onclick="approveUser('${u.email}')" style="width:auto; padding:5px 12px; font-size:0.85em;">Approve</button>
+                    <button onclick="approveUser('${u.email}')" style="width:auto; padding:6px 14px; font-size:0.85em;">Approve</button>
                 </div>
             `).join('');
         }
@@ -520,9 +528,9 @@ HTML_TEMPLATE = """
                 return;
             }
             container.innerHTML = data.employees.map(e => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border-color);">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border-color);">
                     <span>${e.name} (${e.email}) - <b style="color:var(--accent);">${e.role}</b></span>
-                    <button onclick="kickEmployee('${e.email}')" style="width:auto; padding:5px 12px; font-size:0.85em; background:rgba(220,38,38,0.2); color:#f87171; border:1px solid rgba(220,38,38,0.4);">Kick</button>
+                    <button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>
                 </div>
             `).join('');
         }
@@ -591,33 +599,33 @@ HTML_TEMPLATE = """
             } else {
                 tasksContainer.innerHTML = userTasks.map((t, idx) => {
                     let globalIdx = data.tasks.indexOf(t);
-                    let statusBadge = t.status === 'Completed' ? '<span class="badge-done">Completed</span>' : 
-                                      t.status === 'Failed' ? '<span class="badge-failed">Failed</span>' : 
-                                      '<span class="badge-pending">Pending Proof</span>';
+                    let statusBadge = t.status === 'Completed' ? '<span class="badge-done"><span class="pulsing-dot"></span>Completed</span>' : 
+                                      t.status === 'Failed' ? '<span class="badge-failed"><span class="pulsing-dot"></span>Failed</span>' : 
+                                      '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Proof</span>';
                     
                     let actionHtml = '';
                     if(currentUser.role !== 'CEO') {
                         actionHtml = `
-                            <div style="margin-top: 14px; border-top: 1px solid var(--border-color); padding-top: 14px;" id="taskProofBox_${globalIdx}">
-                                <label style="font-size:0.85em; display:block; margin-bottom:6px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
-                                <input type="file" id="proofFile_${globalIdx}" accept="image/*" style="margin-bottom:8px; padding:6px;">
-                                <button onclick="submitProof(${globalIdx})" style="background:#059669; padding:8px 14px; font-size:0.9em; width:auto;">Submit Proof</button>
+                            <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;" id="taskProofBox_${globalIdx}">
+                                <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
+                                <input type="file" id="proofFile_${globalIdx}" accept="image/*" style="margin-bottom:10px; padding:8px;">
+                                <button onclick="submitProof(${globalIdx})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
                             </div>
                         `;
                     }
 
                     return `
-                        <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:8px; border:1px solid var(--border-color); transition: border-color 0.2s;">
+                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:10px; border:1px solid var(--border-color); transition: all 0.2s var(--ease-linear);">
                             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                                 <div>
-                                    <strong style="font-size:1.05em;">${t.title}</strong>
-                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">
+                                    <strong style="font-size:1.1em; letter-spacing:-0.01em;">${t.title}</strong>
+                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:6px;">
                                         Assigned to: ${t.assigned_to} &bull; Priority: ${t.priority} &bull; Deadline: ${t.deadline || 'None'}
                                     </div>
                                 </div>
                                 <div>${statusBadge}</div>
                             </div>
-                            ${t.ai_comment ? `<div style="margin-top:10px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:10px; border-radius:6px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${t.ai_comment}</div>` : ''}
+                            ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:8px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${t.ai_comment}</div>` : ''}
                             ${actionHtml}
                         </div>
                     `;
@@ -631,7 +639,7 @@ HTML_TEMPLATE = """
 
             if(configRoutinesContainer) {
                 configRoutinesContainer.innerHTML = userRoutines.length === 0 ? "<span style='color:var(--subtext);'>No daily routines configured.</span>" :
-                    userRoutines.map(r => `<div style="padding:8px 0; border-bottom:1px solid var(--border-color);"><b>${r.title}</b> &bull; Assigned to: ${r.assigned_to}</div>`).join('');
+                    userRoutines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color);"><b>${r.title}</b> &bull; Assigned to: ${r.assigned_to}</div>`).join('');
             }
 
             let viewableRoutines = userRoutines.filter(r => currentUser.role === 'CEO' || r.assigned_to === currentUser.name);
@@ -641,23 +649,23 @@ HTML_TEMPLATE = """
                 routinesContainer.innerHTML = viewableRoutines.map(r => {
                     let rIdx = data.routines.indexOf(r);
                     let isDoneToday = r.today_status === 'Completed';
-                    let statusBadge = isDoneToday ? '<span class="badge-done">Done Today ✓</span>' : '<span class="badge-pending">Pending Today</span>';
+                    let statusBadge = isDoneToday ? '<span class="badge-done"><span class="pulsing-dot"></span>Done Today ✓</span>' : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Today</span>';
                     
                     let actionHtml = '';
                     if(currentUser.role !== 'CEO' && !isDoneToday) {
                         actionHtml = `
                             <div style="margin-top:12px;">
-                                <button onclick="markRoutineDone(${rIdx})" style="background:#059669; width:auto; padding:6px 14px; font-size:0.85em;">Mark Completed for Today</button>
+                                <button onclick="markRoutineDone(${rIdx})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
                             </div>
                         `;
                     }
 
                     return `
-                        <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:8px; border:1px solid var(--border-color);">
+                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:10px; border:1px solid var(--border-color);">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <div>
-                                    <strong>${r.title}</strong>
-                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:2px;">Assigned to: ${r.assigned_to} &bull; Resets daily</div>
+                                    <strong style="font-size:1.05em; letter-spacing:-0.01em;">${r.title}</strong>
+                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${r.assigned_to} &bull; Resets daily</div>
                                 </div>
                                 <div>${statusBadge}</div>
                             </div>
@@ -671,7 +679,7 @@ HTML_TEMPLATE = """
             let historyBody = document.getElementById('historyTableBody');
             let workspaceHistory = data.history.filter(h => !h.company_id || String(h.company_id) === String(currentUser.company_id));
             historyBody.innerHTML = workspaceHistory.length === 0 ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>` : 
-                workspaceHistory.map(h => `<tr><td style="color:var(--subtext); width:140px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
+                workspaceHistory.map(h => `<tr><td style="color:var(--subtext); width:150px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
         }
 
         async function submitProof(taskIndex) {
@@ -1009,7 +1017,7 @@ def get_employees_list():
         "employees": [
             {"name": u.get("name"), "email": u.get("email"), "role": u.get("role")}
             for u in USERS_DB.values()
-            if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
+            if str(u.get("company_id")) == str(company_id) and u.get("status"] == "Approved"
         ]
     })
 
@@ -1041,8 +1049,7 @@ def update_company():
     for u in USERS_DB.values():
         if str(u.get("company_id")) == str(company_id):
             u["company_name"] = new_name
-    HISTORY_DIR = HISTORY_DB
-    HISTORY_DIR.insert(
+    HISTORY_DB.insert(
         0,
         {
             "company_id": company_id,
