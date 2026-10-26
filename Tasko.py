@@ -948,7 +948,7 @@ def get_employees_list():
         "employees": [
             {"name": u.get("name"), "email": u.get("email"), "role": u.get("role")}
             for u in USERS_DB.values()
-            if str(u.get("company_id")) == str(company_id) and u.get("status"] == "Approved"
+            if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
         ]
     })
 
