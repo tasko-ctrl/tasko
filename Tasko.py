@@ -97,6 +97,21 @@ HTML_TEMPLATE = """
         }
         .pulsing-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulseGlow 2s infinite ease-in-out; }
 
+        /* Top Right Notification Toast Styles */
+        #toastContainer { position: fixed; top: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 14px 20px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.9em; display: flex; align-items: center; gap: 12px; pointer-events: auto; animation: toastIn 0.3s var(--ease-linear) forwards; min-width: 280px; }
+        .toast.success { border-left: 4px solid #34d399; }
+        .toast.error { border-left: 4px solid #f87171; }
+        .toast.info { border-left: 4px solid var(--accent); }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(-15px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateY(0) scale(1); }
+            to { opacity: 0; transform: translateY(-15px) scale(0.95); }
+        }
+
         .chat-box { height: 400px; overflow-y: scroll; border: 1px solid var(--border-color); background: var(--input-bg); padding: 18px; border-radius: 10px; margin-bottom: 16px; scroll-behavior: smooth; }
         .chat-message { margin-bottom: 14px; font-size: 0.9em; line-height: 1.5; animation: linearEntrance 0.25s var(--ease-linear); }
         h2, h3, h4 { margin-top: 0; font-weight: 600; letter-spacing: -0.01em; }
@@ -105,6 +120,9 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
+    <!-- TOAST NOTIFICATION CONTAINER -->
+    <div id="toastContainer"></div>
+
     <!-- AUTH CONTAINER -->
     <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
         <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: linearEntrance 0.4s var(--ease-linear);">
@@ -196,7 +214,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: ASSIGN TASK (CEO / Permitted) -->
+            <!-- SECTION: ASSIGN TASK -->
             <div id="assignSection" class="section-view hidden">
                 <div class="card">
                     <h2>Assign One-Time Task</h2>
@@ -224,7 +242,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: SET DAILY ROUTINES (CEO / Permitted) -->
+            <!-- SECTION: SET DAILY ROUTINES -->
             <div id="routinesConfigSection" class="section-view hidden">
                 <div class="card">
                     <h2>Configure Auto-Daily Routines</h2>
@@ -245,7 +263,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: EMPLOYEE APPROVALS (CEO Only) -->
+            <!-- SECTION: EMPLOYEE APPROVALS -->
             <div id="approvalsSection" class="section-view hidden">
                 <div class="card">
                     <h2>Employee Approvals & Role Management</h2>
@@ -340,6 +358,18 @@ HTML_TEMPLATE = """
             }
         };
 
+        function showToast(message, type = 'success') {
+            let container = document.getElementById('toastContainer');
+            let toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'toastOut 0.3s var(--ease-linear) forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
         function updateRefreshRateSetting() {
             savedRefreshRate = document.getElementById('settingsRefreshRate').value;
             localStorage.setItem('tasko_refresh_rate', savedRefreshRate);
@@ -398,7 +428,7 @@ HTML_TEMPLATE = """
                 company_id: document.getElementById('suCompanyId').value
             };
             if(!signupData.name || !signupData.email || !signupData.password) {
-                alert("Please fill out all fields.");
+                showToast("Please fill out all fields.", "error");
                 return;
             }
             let res = await fetch('/api/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(signupData)});
@@ -406,8 +436,9 @@ HTML_TEMPLATE = """
             if(res.ok) {
                 currentUser = result.user;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                showToast("Account created successfully!");
                 checkLoginState();
-            } else { alert(result.error); }
+            } else { showToast(result.error, "error"); }
         }
 
         async function login() {
@@ -420,8 +451,9 @@ HTML_TEMPLATE = """
             if(res.ok) {
                 currentUser = result.user;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                showToast("Logged in successfully!");
                 checkLoginState();
-            } else { alert(result.error); }
+            } else { showToast(result.error, "error"); }
         }
 
         function logout() {
@@ -433,6 +465,7 @@ HTML_TEMPLATE = """
             document.getElementById('waitingContainer').classList.add('hidden');
             document.getElementById('dashboardContainer').classList.add('hidden');
             toggleAuth('login');
+            showToast("Logged out successfully.", "info");
         }
 
         async function checkLoginState() {
@@ -475,13 +508,11 @@ HTML_TEMPLATE = """
             let isCeo = currentUser.role === 'CEO';
             let permissions = currentUser.permissions || [];
 
-            // Show/hide CEO-only elements
             document.querySelectorAll('.ceo-only').forEach(el => {
                 if(isCeo) el.classList.remove('hidden');
                 else el.classList.add('hidden');
             });
 
-            // Enforce granular employee permissions if not CEO
             if(!isCeo) {
                 document.getElementById('navAssign').classList.toggle('hidden', !permissions.includes('assign_tasks'));
                 document.getElementById('navRoutinesConfig').classList.toggle('hidden', !permissions.includes('config_routines'));
@@ -500,13 +531,13 @@ HTML_TEMPLATE = """
 
         async function updateCompanyName() {
             let newName = document.getElementById('settingsCompanyName').value;
-            if(!newName) { alert("Company name cannot be empty."); return; }
+            if(!newName) { showToast("Company name cannot be empty.", "error"); return; }
             let res = await fetch('/api/admin/update-company', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({company_id: currentUser.company_id, company_name: newName})});
             if(res.ok) {
                 currentUser.company_name = newName;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
                 document.getElementById('brandCompanyName').innerText = newName;
-                alert("Company name updated successfully!");
+                showToast("Company name updated successfully!");
             }
         }
 
@@ -560,6 +591,7 @@ HTML_TEMPLATE = """
                 headers: {'Content-Type': 'application/json'}, 
                 body: JSON.stringify({ email, stance, permissions })
             });
+            showToast("Employee approved successfully!");
             loadPendingUsers();
             loadEmployeesManagement();
             loadEmployeesDropdown();
@@ -584,6 +616,7 @@ HTML_TEMPLATE = """
         async function kickEmployee(email) {
             if(!confirm("Are you sure you want to kick this employee?")) return;
             await fetch('/api/admin/kick-employee', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, company_id: currentUser.company_id})});
+            showToast("Employee removed from workspace.", "info");
             loadEmployeesManagement();
             loadEmployeesDropdown();
             loadDashboardData();
@@ -606,13 +639,13 @@ HTML_TEMPLATE = """
                 company_id: currentUser.company_id
             };
             if(!data.title || !data.assigned_to) {
-                alert("Please fill out task title and assignee.");
+                showToast("Please fill out task title and assignee.", "error");
                 return;
             }
             await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
             document.getElementById('taskTitle').value = '';
             document.getElementById('taskDeadline').value = '';
-            alert("Task assigned successfully!");
+            showToast("Task assigned successfully!");
             loadDashboardData();
         }
 
@@ -623,12 +656,12 @@ HTML_TEMPLATE = """
                 company_id: currentUser.company_id
             };
             if(!data.title || !data.assigned_to) {
-                alert("Please fill out routine title and assignee.");
+                showToast("Please fill out routine title and assignee.", "error");
                 return;
             }
             await fetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
             document.getElementById('routineTitle').value = '';
-            alert("Daily routine configured successfully!");
+            showToast("Daily routine configured successfully!");
             loadDashboardData();
         }
 
@@ -636,7 +669,6 @@ HTML_TEMPLATE = """
             let res = await fetch(`/api/data?company_id=${currentUser.company_id}`);
             let data = await res.json();
             
-            // Tasks
             let tasksContainer = document.getElementById('myTasksList');
             let userTasks = data.tasks.filter(t => String(t.company_id) === String(currentUser.company_id) && (currentUser.role === 'CEO' || t.assigned_to === currentUser.name));
             
@@ -678,7 +710,6 @@ HTML_TEMPLATE = """
                 }).join('');
             }
 
-            // Daily Routines
             let routinesContainer = document.getElementById('dailyRoutinesList');
             let configRoutinesContainer = document.getElementById('configRoutinesList');
             let userRoutines = data.routines.filter(r => String(r.company_id) === String(currentUser.company_id));
@@ -721,7 +752,6 @@ HTML_TEMPLATE = """
                 }).join('');
             }
 
-            // History
             let historyBody = document.getElementById('historyTableBody');
             let workspaceHistory = data.history.filter(h => !h.company_id || String(h.company_id) === String(currentUser.company_id));
             historyBody.innerHTML = workspaceHistory.length === 0 ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>` : 
@@ -731,15 +761,15 @@ HTML_TEMPLATE = """
         async function submitProof(taskIndex) {
             let fileInput = document.getElementById(`proofFile_${taskIndex}`);
             if(!fileInput || fileInput.files.length === 0) { 
-                alert("Please select an image file."); 
+                showToast("Please select an image file.", "error"); 
                 return; 
             }
             let file = fileInput.files[0];
             let reader = new FileReader();
-            reader.readAsDataURL(file);
+            
             reader.onload = async function () {
                 let base64Image = reader.result.split(',')[1];
-                alert("Submitting proof to Gemini AI...");
+                showToast("Submitting proof to Gemini AI...", "info");
                 try {
                     let res = await fetch('/api/tasks/verify-proof', {
                         method: 'POST', 
@@ -748,19 +778,24 @@ HTML_TEMPLATE = """
                     });
                     let result = await res.json();
                     if(res.ok) { 
-                        alert("AI Verification Complete: " + result.status); 
+                        showToast("AI Verification Complete: " + result.status); 
                         loadDashboardData(); 
                     } else {
-                        alert("Error: " + (result.error || "Verification failed"));
+                        showToast("Error: " + (result.error || "Verification failed"), "error");
                     }
                 } catch(err) {
-                    alert("Network error while submitting proof.");
+                    showToast("Network error while submitting proof.", "error");
                 }
             };
+            reader.onerror = function() {
+                showToast("Failed to read selected file.", "error");
+            };
+            reader.readAsDataURL(file);
         }
 
         async function markRoutineDone(routineIndex) {
             await fetch('/api/routines/complete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index: routineIndex})});
+            showToast("Daily routine marked completed!");
             loadDashboardData();
         }
 
@@ -1075,7 +1110,7 @@ def get_employees_list():
         "employees": [
             {"name": u.get("name"), "email": u.get("email"), "role": u.get("role"), "stance": u.get("stance")}
             for u in USERS_DB.values()
-            if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
+            if str(u.get("company_id")) == str(company_id) and u.get("status"] == "Approved"
         ]
     })
 
