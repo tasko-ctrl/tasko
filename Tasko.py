@@ -143,7 +143,7 @@ HTML_TEMPLATE = """
         <div class="card" style="width: 100%; max-width: 420px; margin: 0; text-align:center; padding: 44px 32px; animation: linearEntrance 0.4s var(--ease-linear);">
             <div style="width:12px; height:12px; background:#fbbf24; border-radius:50%; margin:0 auto 20px auto; box-shadow: 0 0 16px #fbbf24; animation: pulseGlow 1.5s infinite;"></div>
             <h2 style="margin-bottom:12px;">Waiting for CEO Approval</h2>
-            <p style="color:var(--subtext); font-size:0.9em; line-height:1.6; margin-bottom:32px;">Your account has been registered. The workspace CEO needs to review and approve your request before you can enter.</p>
+            <p style="color:var(--subtext); font-size:0.9em; line-height:1.6; margin-bottom:32px;">Your account has been registered. The workspace CEO needs to review and assign your role/permissions before you can enter.</p>
             <button onclick="logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Sign Out</button>
         </div>
     </div>
@@ -160,17 +160,18 @@ HTML_TEMPLATE = """
             <div class="sidebar-menu">
                 <button class="nav-item active" onclick="switchSection('tasksSection', this)">📋 Assigned Tasks</button>
                 <button class="nav-item" onclick="switchSection('routinesSection', this)">🔄 Daily Routines</button>
-                <button class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
-                <button class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙ Set Daily Routines</button>
+                <button id="navAssign" class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
+                <button id="navRoutinesConfig" class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙ Set Daily Routines</button>
                 <button class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
-                <button class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
-                <button class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
+                <button id="navChat" class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
+                <button id="navLogs" class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
                 <button class="nav-item" onclick="switchSection('settingsSection', this)">⚙ Settings</button>
             </div>
 
             <div style="border-top:1px solid var(--border-color); padding-top:16px; margin-top:auto;">
                 <div style="font-size:0.85em; color:var(--text-color); font-weight:600;" id="sidebarUserName">User</div>
-                <div style="font-size:0.75em; color:var(--subtext); margin-bottom:14px;" id="sidebarUserRole">Role</div>
+                <div style="font-size:0.75em; color:var(--subtext); margin-bottom:4px;" id="sidebarUserRole">Role</div>
+                <div style="font-size:0.75em; color:var(--accent); margin-bottom:14px;" id="sidebarUserStance">Stance</div>
                 <button onclick="logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
             </div>
         </div>
@@ -195,7 +196,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: ASSIGN TASK (CEO Only) -->
+            <!-- SECTION: ASSIGN TASK (CEO / Permitted) -->
             <div id="assignSection" class="section-view hidden">
                 <div class="card">
                     <h2>Assign One-Time Task</h2>
@@ -223,7 +224,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: SET DAILY ROUTINES (CEO Only) -->
+            <!-- SECTION: SET DAILY ROUTINES (CEO / Permitted) -->
             <div id="routinesConfigSection" class="section-view hidden">
                 <div class="card">
                     <h2>Configure Auto-Daily Routines</h2>
@@ -247,8 +248,8 @@ HTML_TEMPLATE = """
             <!-- SECTION: EMPLOYEE APPROVALS (CEO Only) -->
             <div id="approvalsSection" class="section-view hidden">
                 <div class="card">
-                    <h2>Employee Approvals & Management</h2>
-                    <p style="font-size:0.9em; color:var(--subtext);">Manage workspace access and active team members.</p>
+                    <h2>Employee Approvals & Role Management</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">Review pending join requests, assign custom stances/roles, and configure granular permissions.</p>
                     
                     <h4 style="margin-top:24px; font-size:0.95em; color:var(--subtext);">Pending Requests</h4>
                     <div id="pendingUsersList" style="margin-bottom:24px;">No pending users.</div>
@@ -453,6 +454,8 @@ HTML_TEMPLATE = """
                     if(approvalCheckInterval) clearInterval(approvalCheckInterval);
                     currentUser.status = 'Approved';
                     currentUser.company_name = statusData.company_name;
+                    currentUser.stance = statusData.stance;
+                    currentUser.permissions = statusData.permissions || [];
                     localStorage.setItem('tasko_user', JSON.stringify(currentUser));
                 }
             }
@@ -463,16 +466,27 @@ HTML_TEMPLATE = """
             
             document.getElementById('sidebarUserName').innerText = currentUser.name;
             document.getElementById('sidebarUserRole').innerText = currentUser.role;
+            document.getElementById('sidebarUserStance').innerText = currentUser.stance ? `Stance: ${currentUser.stance}` : '';
             document.getElementById('brandCompanyName').innerText = currentUser.company_name || "Tasko Workspace";
             
             document.getElementById('settingsCompanyName').value = currentUser.company_name || "MyCorp";
             document.getElementById('settingsCompanyId').value = currentUser.company_id;
 
             let isCeo = currentUser.role === 'CEO';
+            let permissions = currentUser.permissions || [];
+
+            // Show/hide CEO-only elements
             document.querySelectorAll('.ceo-only').forEach(el => {
                 if(isCeo) el.classList.remove('hidden');
                 else el.classList.add('hidden');
             });
+
+            // Enforce granular employee permissions if not CEO
+            if(!isCeo) {
+                document.getElementById('navAssign').classList.toggle('hidden', !permissions.includes('assign_tasks'));
+                document.getElementById('navRoutinesConfig').classList.toggle('hidden', !permissions.includes('config_routines'));
+                document.getElementById('navLogs').classList.toggle('hidden', !permissions.includes('view_logs'));
+            }
 
             if(isCeo) {
                 loadPendingUsers();
@@ -505,15 +519,47 @@ HTML_TEMPLATE = """
                 return;
             }
             container.innerHTML = data.pending_users.map(u => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border-color);">
-                    <span>${u.name} (${u.email})</span>
-                    <button onclick="approveUser('${u.email}')" style="width:auto; padding:6px 14px; font-size:0.85em;">Approve</button>
+                <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:10px; border:1px solid var(--border-color);">
+                    <div style="margin-bottom:8px;"><strong>${u.name}</strong> (${u.email})</div>
+                    
+                    <label style="font-size:0.8em; color:var(--subtext);">Select Stance / Type Custom Role:</label>
+                    <select id="stanceSelect_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" onchange="if(this.value==='Custom') document.getElementById('customStance_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}').classList.remove('hidden'); else document.getElementById('customStance_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}').classList.add('hidden');" style="margin-bottom:8px;">
+                        <option value="Team Member">Team Member</option>
+                        <option value="Lead Developer">Lead Developer</option>
+                        <option value="Operations Manager">Operations Manager</option>
+                        <option value="Marketing Specialist">Marketing Specialist</option>
+                        <option value="Custom">Custom Role...</option>
+                    </select>
+                    <input type="text" id="customStance_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" placeholder="Enter custom stance..." class="hidden" style="margin-bottom:10px;">
+
+                    <label style="font-size:0.8em; color:var(--subtext); display:block; margin-bottom:6px;">Permissions Checklist:</label>
+                    <div style="display:flex; flex-direction:column; gap:6px; font-size:0.85em; margin-bottom:12px;">
+                        <label><input type="checkbox" id="perm_assign_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> Can Assign Tasks</label>
+                        <label><input type="checkbox" id="perm_routines_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Can Configure Daily Routines</label>
+                        <label><input type="checkbox" id="perm_logs_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> Can View Activity Logs</label>
+                    </div>
+
+                    <button onclick="approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
                 </div>
             `).join('');
         }
 
         async function approveUser(email) {
-            await fetch('/api/admin/approve-user', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email})});
+            let emailKey = email.replace(/[^a-zA-Z0-9]/g, '_');
+            let stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
+            let stance = stanceDropdown === 'Custom' ? document.getElementById(`customStance_${emailKey}`).value : stanceDropdown;
+            if(!stance) stance = "Team Member";
+
+            let permissions = [];
+            if(document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push('assign_tasks');
+            if(document.getElementById(`perm_routines_${emailKey}`).checked) permissions.push('config_routines');
+            if(document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push('view_logs');
+
+            await fetch('/api/admin/approve-user', {
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({ email, stance, permissions })
+            });
             loadPendingUsers();
             loadEmployeesManagement();
             loadEmployeesDropdown();
@@ -529,7 +575,7 @@ HTML_TEMPLATE = """
             }
             container.innerHTML = data.employees.map(e => `
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border-color);">
-                    <span>${e.name} (${e.email}) - <b style="color:var(--accent);">${e.role}</b></span>
+                    <span>${e.name} (${e.email}) &bull; <b style="color:var(--accent);">${e.stance || e.role}</b></span>
                     <button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>
                 </div>
             `).join('');
@@ -546,7 +592,7 @@ HTML_TEMPLATE = """
         async function loadEmployeesDropdown() {
             let res = await fetch(`/api/admin/employees-list?company_id=${currentUser.company_id}`);
             let data = await res.json();
-            let opts = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${e.name}">${e.name} (${e.role})</option>`).join('');
+            let opts = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${e.name}">${e.name} (${e.stance || e.role})</option>`).join('');
             document.getElementById('taskAssigneeSelect').innerHTML = opts;
             document.getElementById('routineAssigneeSelect').innerHTML = opts;
         }
@@ -764,6 +810,8 @@ def signup():
         "password": password,
         "role": role,
         "status": "Pending" if role == "Employee" else "Approved",
+        "stance": "CEO" if role == "CEO" else "",
+        "permissions": ["assign_tasks", "config_routines", "view_logs"] if role == "CEO" else [],
     }
 
     if role == "CEO":
@@ -810,7 +858,12 @@ def check_status():
     email = request.args.get("email")
     if email in USERS_DB:
         user = USERS_DB[email]
-        return jsonify({"status": "Approved", "company_name": user.get("company_name", "Tasko Workspace")})
+        return jsonify({
+            "status": "Approved", 
+            "company_name": user.get("company_name", "Tasko Workspace"),
+            "stance": user.get("stance", "Team Member"),
+            "permissions": user.get("permissions", [])
+        })
     elif email in PENDING_USERS_DB:
         return jsonify({"status": "Pending"})
     return jsonify({"status": "NotFound"})
@@ -994,15 +1047,20 @@ def get_pending_users():
 def approve_user():
     data = request.json
     email = data.get("email")
+    stance = data.get("stance", "Team Member")
+    permissions = data.get("permissions", [])
+
     if email in PENDING_USERS_DB:
         user = PENDING_USERS_DB.pop(email)
         user["status"] = "Approved"
+        user["stance"] = stance
+        user["permissions"] = permissions
         USERS_DB[email] = user
         HISTORY_DB.insert(
             0,
             {
                 "company_id": user.get("company_id"),
-                "action": f"Employee {user['name']} approved into workspace",
+                "action": f"Employee {user['name']} approved with stance '{stance}'",
                 "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             },
         )
@@ -1015,7 +1073,7 @@ def get_employees_list():
     company_id = request.args.get("company_id")
     return jsonify({
         "employees": [
-            {"name": u.get("name"), "email": u.get("email"), "role": u.get("role")}
+            {"name": u.get("name"), "email": u.get("email"), "role": u.get("role"), "stance": u.get("stance")}
             for u in USERS_DB.values()
             if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
         ]
