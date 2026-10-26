@@ -116,6 +116,16 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <!-- PENDING APPROVAL WAITING SCREEN -->
+    <div id="waitingContainer" class="hidden" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
+        <div class="card" style="width: 100%; max-width: 420px; margin: 0; text-align:center; padding: 40px 24px;">
+            <div style="width:16px; height:16px; background:#d97706; border-radius:50%; margin:0 auto 16px auto; animation: pulse 1.5s infinite;"></div>
+            <h2 style="margin-bottom:10px;">Waiting for CEO Approval</h2>
+            <p style="color:var(--subtext); font-size:0.9em; line-height:1.5; margin-bottom:24px;">Your account has been created and your request has been sent to the workspace CEO. You will enter the workspace automatically once approved.</p>
+            <button onclick="logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color);">Sign Out / Switch Account</button>
+        </div>
+    </div>
+
     <!-- DASHBOARD CONTAINER -->
     <div id="dashboardContainer" class="hidden" style="display:flex; width:100%; height:100vh;">
         <!-- LEFT SIDEBAR TASKBAR -->
@@ -304,6 +314,7 @@ HTML_TEMPLATE = """
         let currentTheme = localStorage.getItem('tasko_theme') || 'dark';
         let savedRefreshRate = localStorage.getItem('tasko_refresh_rate') || '10';
         let workspaceRefreshInterval = null;
+        let approvalCheckInterval = null;
 
         window.onload = () => {
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
@@ -376,7 +387,6 @@ HTML_TEMPLATE = """
             let res = await fetch('/api/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(signupData)});
             let result = await res.json();
             if(res.ok) {
-                alert("Account created successfully!");
                 currentUser = result.user;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
                 checkLoginState();
@@ -401,14 +411,39 @@ HTML_TEMPLATE = """
             currentUser = null;
             localStorage.removeItem('tasko_user');
             if (workspaceRefreshInterval) clearInterval(workspaceRefreshInterval);
+            if (approvalCheckInterval) clearInterval(approvalCheckInterval);
             document.getElementById('authContainer').style.display = 'flex';
+            document.getElementById('waitingContainer').classList.add('hidden');
             document.getElementById('dashboardContainer').classList.add('hidden');
             toggleAuth('login');
         }
 
         async function checkLoginState() {
             if(!currentUser) return;
+
+            // If employee is pending, show waiting screen and poll status
+            if(currentUser.role === 'Employee') {
+                let statusRes = await fetch(`/api/check-status?email=${currentUser.email}`);
+                let statusData = await statusRes.json();
+                if(statusData.status === 'Pending') {
+                    document.getElementById('authContainer').style.display = 'none';
+                    document.getElementById('dashboardContainer').classList.add('hidden');
+                    document.getElementById('waitingContainer').classList.remove('hidden');
+                    
+                    if(!approvalCheckInterval) {
+                        approvalCheckInterval = setInterval(checkLoginState, 5000);
+                    }
+                    return;
+                } else if(statusData.status === 'Approved') {
+                    if(approvalCheckInterval) clearInterval(approvalCheckInterval);
+                    currentUser.status = 'Approved';
+                    currentUser.company_name = statusData.company_name;
+                    localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                }
+            }
+
             document.getElementById('authContainer').style.display = 'none';
+            document.getElementById('waitingContainer').classList.add('hidden');
             document.getElementById('dashboardContainer').classList.remove('hidden');
             
             document.getElementById('sidebarUserName').innerText = currentUser.name;
@@ -713,14 +748,13 @@ def signup():
         "email": email,
         "password": password,
         "role": role,
-        "status": "Jobless",
+        "status": "Pending" if role == "Employee" else "Approved",
     }
 
     if role == "CEO":
         company_id = str(random.randint(1000000000, 9999999999))
         user_data["company_id"] = company_id
         user_data["company_name"] = data.get("company_name", "MyCorp")
-        user_data["status"] = "Approved"
         USERS_DB[email] = user_data
         HISTORY_DB.insert(
             0,
@@ -733,6 +767,13 @@ def signup():
     else:
         company_id = data.get("company_id")
         user_data["company_id"] = company_id
+        # Find company name for reference
+        for u in USERS_DB.values():
+            if str(u.get("company_id")) == str(company_id) and u.get("role") == "CEO":
+                user_data["company_name"] = u.get("company_name", "Tasko Workspace")
+                break
+        if "company_name" not in user_data:
+            user_data["company_name"] = "Tasko Workspace"
         PENDING_USERS_DB[email] = user_data
 
     return jsonify({"success": True, "user": user_data})
@@ -741,10 +782,24 @@ def signup():
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.json
-    user = USERS_DB.get(data.get("email")) or PENDING_USERS_DB.get(data.get("email"))
-    if not user or user.get("password") != data.get("password"):
+    email = data.get("email")
+    password = data.get("password")
+
+    user = USERS_DB.get(email) or PENDING_USERS_DB.get(email)
+    if not user or user.get("password") != password:
         return jsonify({"error": "Invalid email or password."}), 401
     return jsonify({"success": True, "user": user})
+
+
+@app.route("/api/check-status", methods=["GET"])
+def check_status():
+    email = request.args.get("email")
+    if email in USERS_DB:
+        user = USERS_DB[email]
+        return jsonify({"status": "Approved", "company_name": user.get("company_name", "Tasko Workspace")})
+    elif email in PENDING_USERS_DB:
+        return jsonify({"status": "Pending"})
+    return jsonify({"status": "NotFound"})
 
 
 @app.route("/api/data", methods=["GET"])
