@@ -2,8 +2,8 @@ import datetime
 import os
 import base64
 import random
-import requests
-from flask import Flask, jsonify, request, render_template_string
+import io
+from flask import Flask, jsonify, request, render_template_string, send_file
 from google import genai
 from google.api_core import exceptions
 from google.genai import types
@@ -27,9 +27,9 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <title>Tasko - Workspace Manager</title>
-    <!-- Favicon and Touch Icon -->
-    <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAHVJREFUeNrs1wENAAAAwiD7p/ZkGKEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPBtAANfAAHw3BfPAAAAAElFTkSuQmCC">
-    <link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAHVJREFUeNrs1wENAAAAwiD7p/ZkGKEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPBtAANfAAHw3BfPAAAAAElFTkSuQmCC">
+    <!-- Favicon and Touch Icon Links -->
+    <link rel="icon" type="image/png" href="/favicon.ico">
+    <link rel="apple-touch-icon" href="/favicon.ico">
     <style>
         :root {
             --bg-color: #07090e;
@@ -831,6 +831,23 @@ def index():
     return render_template_string(HTML_TEMPLATE)
 
 
+@app.route("/favicon.ico")
+def favicon():
+    # Programmatically generates a crisp 64x64 PNG app icon to guarantee favicon display
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (64, 64), (11, 15, 23, 255))
+    draw = ImageDraw.Draw(img)
+    # Draw rounded background card
+    draw.rounded_rectangle([4, 4, 60, 60], radius=14, fill=(15, 21, 35, 255), outline=(94, 106, 210, 255), width=2)
+    # Draw checkmark and upward arrow
+    draw.line([(18, 34), (28, 44), (46, 22)], fill=(94, 106, 210, 255), width=5, joint="curve")
+    
+    io_buf = io.BytesIO()
+    img.save(io_buf, format="PNG")
+    io_buf.seek(0)
+    return send_file(io_buf, mimetype="image/png")
+
+
 @app.route("/api/signup", methods=["POST"])
 def signup():
     data = request.json
@@ -1031,7 +1048,7 @@ def verify_proof():
         )
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 prompt,
@@ -1113,7 +1130,7 @@ def get_employees_list():
         "employees": [
             {"name": u.get("name"), "email": u.get("email"), "role": u.get("role"), "stance": u.get("stance")}
             for u in USERS_DB.values()
-            if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
+            if str(u.get("company_id")) == str(company_id) and u.get("status"] == "Approved"
         ]
     })
 
@@ -1139,6 +1156,7 @@ def kick_employee():
 
 @app.route("/api/admin/update-company", methods=["POST"])
 def update_company():
+    data.get("company_id") if False else None
     data = request.json
     company_id = data.get("company_id")
     new_name = data.get("company_name")
