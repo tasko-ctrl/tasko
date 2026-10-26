@@ -837,9 +837,7 @@ def favicon():
     from PIL import Image, ImageDraw
     img = Image.new("RGBA", (64, 64), (11, 15, 23, 255))
     draw = ImageDraw.Draw(img)
-    # Draw rounded background card
     draw.rounded_rectangle([4, 4, 60, 60], radius=14, fill=(15, 21, 35, 255), outline=(94, 106, 210, 255), width=2)
-    # Draw checkmark and upward arrow
     draw.line([(18, 34), (28, 44), (46, 22)], fill=(94, 106, 210, 255), width=5, joint="curve")
     
     io_buf = io.BytesIO()
@@ -1130,7 +1128,7 @@ def get_employees_list():
         "employees": [
             {"name": u.get("name"), "email": u.get("email"), "role": u.get("role"), "stance": u.get("stance")}
             for u in USERS_DB.values()
-            if str(u.get("company_id")) == str(company_id) and u.get("status"] == "Approved"
+            if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
         ]
     })
 
@@ -1156,7 +1154,6 @@ def kick_employee():
 
 @app.route("/api/admin/update-company", methods=["POST"])
 def update_company():
-    data.get("company_id") if False else None
     data = request.json
     company_id = data.get("company_id")
     new_name = data.get("company_name")
