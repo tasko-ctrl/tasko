@@ -14,29 +14,32 @@ app = Flask(__name__)
 # Correctly initialize the Google GenAI client using GEMINI_API_KEY
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY")) if os.environ.get("GEMINI_API_KEY") else None
 
-USERS_DB = {}
-PENDING_USERS_DB = {}
-DAILY_ROUTINES_DB = []
-DAILY_LOGS_DB = {}  # Format: { "YYYY-MM-DD": { routine_index: status } }
-HISTORY_DB = []
-MESSAGES_DB = []
+# --- Persistent Storage Layer ---
+DB_DIR = "tasko_data"
+os.makedirs(DB_DIR, exist_ok=True)
 
-TASKS_FILE = "tasks.json"
-
-def load_tasks():
-    if os.path.exists(TASKS_FILE):
+def load_db(filename, default):
+    path = os.path.join(DB_DIR, filename)
+    if os.path.exists(path):
         try:
-            with open(TASKS_FILE, "r") as f:
+            with open(path, "r") as f:
                 return json.load(f)
         except Exception:
-            return []
-    return []
+            return default
+    return default
 
-def save_tasks():
-    with open(TASKS_FILE, "w") as f:
-        json.dump(TASKS_DB, f)
+def save_db(filename, data):
+    path = os.path.join(DB_DIR, filename)
+    with open(path, "w") as f:
+        json.dump(data, f)
 
-TASKS_DB = load_tasks()
+USERS_DB = load_db("users.json", {})
+PENDING_USERS_DB = load_db("pending_users.json", {})
+TASKS_DB = load_db("tasks.json", [])
+DAILY_ROUTINES_DB = load_db("routines.json", [])
+DAILY_LOGS_DB = load_db("daily_logs.json", {})
+HISTORY_DB = load_db("history.json", [])
+MESSAGES_DB = load_db("messages.json", [])
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -888,6 +891,7 @@ def signup():
         user_data["company_id"] = company_id
         user_data["company_name"] = data.get("company_name", "MyCorp")
         USERS_DB[email] = user_data
+        save_db("users.json", USERS_DB)
         HISTORY_DB.insert(
             0,
             {
@@ -896,6 +900,7 @@ def signup():
                 "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             },
         )
+        save_db("history.json", HISTORY_DB)
     else:
         company_id = data.get("company_id")
         user_data["company_id"] = company_id
@@ -906,6 +911,7 @@ def signup():
         if "company_name" not in user_data:
             user_data["company_name"] = "Tasko Workspace"
         PENDING_USERS_DB[email] = user_data
+        save_db("pending_users.json", PENDING_USERS_DB)
 
     return jsonify({"success": True, "user": user_data})
 
@@ -948,7 +954,7 @@ def get_data():
     for idx, r in enumerate(DAILY_ROUTINES_DB):
         if str(r.get("company_id")) == str(company_id):
             r_copy = r.copy()
-            r_copy["today_status"] = today_logs.get(idx, "Pending")
+            r_copy["today_status"] = today_logs.get(str(idx), "Pending")
             routines_with_status.append(r_copy)
 
     return jsonify({
@@ -976,7 +982,7 @@ def add_task():
         "ai_comment": "",
         "company_id": company_id,
     })
-    save_tasks()
+    save_db("tasks.json", TASKS_DB)
 
     HISTORY_DB.insert(
         0,
@@ -986,6 +992,7 @@ def add_task():
             "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         },
     )
+    save_db("history.json", HISTORY_DB)
     return jsonify({"success": True})
 
 
@@ -1001,6 +1008,7 @@ def add_routine():
         "assigned_to": assigned_to,
         "company_id": company_id,
     })
+    save_db("routines.json", DAILY_ROUTINES_DB)
 
     HISTORY_DB.insert(
         0,
@@ -1010,6 +1018,7 @@ def add_routine():
             "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         },
     )
+    save_db("history.json", HISTORY_DB)
     return jsonify({"success": True})
 
 
@@ -1025,9 +1034,10 @@ def complete_routine():
     if today_date not in DAILY_LOGS_DB:
         DAILY_LOGS_DB[today_date] = {}
 
-    DAILY_LOGS_DB[today_date][index] = "Completed"
-    routine = DAILY_ROUTINES_DB[index]
+    DAILY_LOGS_DB[today_date][str(index)] = "Completed"
+    save_db("daily_logs.json", DAILY_LOGS_DB)
 
+    routine = DAILY_ROUTINES_DB[index]
     HISTORY_DB.insert(
         0,
         {
@@ -1036,6 +1046,7 @@ def complete_routine():
             "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         },
     )
+    save_db("history.json", HISTORY_DB)
     return jsonify({"success": True})
 
 
@@ -1053,7 +1064,7 @@ def verify_proof():
     if not client:
         task["status"] = "Completed"
         task["ai_comment"] = "Simulated verification (API key missing)."
-        save_tasks()
+        save_db("tasks.json", TASKS_DB)
         return jsonify({"success": True, "status": "Completed"})
 
     try:
@@ -1074,7 +1085,7 @@ def verify_proof():
         
         task["status"] = "Completed" if "Completed" in ai_text or "pass" in ai_text.lower() else "Failed"
         task["ai_comment"] = ai_text
-        save_tasks()
+        save_db("tasks.json", TASKS_DB)
 
         HISTORY_DB.insert(
             0,
@@ -1084,6 +1095,7 @@ def verify_proof():
                 "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             },
         )
+        save_db("history.json", HISTORY_DB)
         return jsonify({"success": True, "status": task["status"], "comment": ai_text})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1100,6 +1112,7 @@ def workspace_chat():
             "text": data.get("text"),
             "time": datetime.datetime.now().strftime("%H:%M"),
         })
+        save_db("messages.json", MESSAGES_DB)
         return jsonify({"success": True})
     else:
         company_id = request.args.get("company_id")
@@ -1128,6 +1141,9 @@ def approve_user():
         user["stance"] = stance
         user["permissions"] = permissions
         USERS_DB[email] = user
+        save_db("pending_users.json", PENDING_USERS_DB)
+        save_db("users.json", USERS_DB)
+        
         HISTORY_DB.insert(
             0,
             {
@@ -1136,6 +1152,7 @@ def approve_user():
                 "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             },
         )
+        save_db("history.json", HISTORY_DB)
         return jsonify({"success": True})
     return jsonify({"error": "User not found."}), 404
 
@@ -1159,6 +1176,7 @@ def kick_employee():
     company_id = data.get("company_id")
     if email in USERS_DB:
         user = USERS_DB.pop(email)
+        save_db("users.json", USERS_DB)
         HISTORY_DB.insert(
             0,
             {
@@ -1167,6 +1185,7 @@ def kick_employee():
                 "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             },
         )
+        save_db("history.json", HISTORY_DB)
         return jsonify({"success": True})
     return jsonify({"error": "Employee not found."}), 404
 
@@ -1179,6 +1198,7 @@ def update_company():
     for u in USERS_DB.values():
         if str(u.get("company_id")) == str(company_id):
             u["company_name"] = new_name
+    save_db("users.json", USERS_DB)
     HISTORY_DB.insert(
         0,
         {
@@ -1187,6 +1207,7 @@ def update_company():
             "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         },
     )
+    save_db("history.json", HISTORY_DB)
     return jsonify({"success": True})
 
 
