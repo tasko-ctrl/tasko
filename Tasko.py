@@ -120,7 +120,6 @@ HTML_TEMPLATE = """
         }
         .pulsing-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulseGlow 2s infinite ease-in-out; }
 
-        /* Top Right Notification Toast Styles */
         #toastContainer { position: fixed; top: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
         .toast { background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 14px 20px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.9em; display: flex; align-items: center; gap: 12px; pointer-events: auto; animation: toastIn 0.3s var(--ease-linear) forwards; min-width: 280px; }
         .toast.success { border-left: 4px solid #34d399; }
@@ -143,10 +142,8 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toastContainer"></div>
 
-    <!-- AUTH CONTAINER -->
     <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
         <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: linearEntrance 0.4s var(--ease-linear);">
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:28px;">
@@ -179,7 +176,6 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- PENDING APPROVAL WAITING SCREEN -->
     <div id="waitingContainer" class="hidden" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
         <div class="card" style="width: 100%; max-width: 420px; margin: 0; text-align:center; padding: 44px 32px; animation: linearEntrance 0.4s var(--ease-linear);">
             <div style="width:12px; height:12px; background:#fbbf24; border-radius:50%; margin:0 auto 20px auto; box-shadow: 0 0 16px #fbbf24; animation: pulseGlow 1.5s infinite;"></div>
@@ -189,9 +185,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- DASHBOARD CONTAINER -->
     <div id="dashboardContainer" class="hidden" style="display:flex; width:100%; height:100vh;">
-        <!-- LEFT SIDEBAR -->
         <div class="sidebar">
             <div class="sidebar-brand">
                 <div style="width:8px; height:8px; background:var(--accent); border-radius:50%; box-shadow: 0 0 10px var(--accent);"></div>
@@ -217,9 +211,7 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- MAIN CONTENT VIEW SECTIONS -->
         <div class="main-content">
-            <!-- SECTION: ASSIGNED TASKS -->
             <div id="tasksSection" class="section-view">
                 <div class="card">
                     <h2>Assigned Tasks & Routines</h2>
@@ -228,7 +220,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: DAILY ROUTINES -->
             <div id="routinesSection" class="section-view hidden">
                 <div class="card">
                     <h2>Daily Recurring Routines</h2>
@@ -237,7 +228,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: ASSIGN TASK -->
             <div id="assignSection" class="section-view hidden">
                 <div class="card">
                     <h2>Assign One-Time Task</h2>
@@ -265,7 +255,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: SET DAILY ROUTINES -->
             <div id="routinesConfigSection" class="section-view hidden">
                 <div class="card">
                     <h2>Configure Auto-Daily Routines</h2>
@@ -286,7 +275,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: EMPLOYEE APPROVALS -->
             <div id="approvalsSection" class="section-view hidden">
                 <div class="card">
                     <h2>Employee Approvals & Role Management</h2>
@@ -300,7 +288,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: TEAM CHAT -->
             <div id="chatSection" class="section-view hidden">
                 <div class="card" style="height:calc(100vh - 120px); display:flex; flex-direction:column;">
                     <h2>Live Workspace Chat</h2>
@@ -312,7 +299,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: ACTIVITY LOGS -->
             <div id="logsSection" class="section-view hidden">
                 <div class="card">
                     <h2>Workspace Activity Log</h2>
@@ -328,7 +314,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- SECTION: SETTINGS -->
             <div id="settingsSection" class="section-view hidden">
                 <div class="card" style="max-width: 600px;">
                     <h2>Workspace Settings</h2>
@@ -512,6 +497,7 @@ HTML_TEMPLATE = """
                     currentUser.company_name = statusData.company_name;
                     currentUser.stance = statusData.stance;
                     currentUser.permissions = statusData.permissions || [];
+                    currentUser.other_permission = statusData.other_permission || "";
                     localStorage.setItem('tasko_user', JSON.stringify(currentUser));
                 }
             }
@@ -593,9 +579,38 @@ HTML_TEMPLATE = """
                         <label><input type="checkbox" id="perm_logs_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> Can View Activity Logs</label>
                     </div>
 
+                    <label style="font-size:0.8em; color:var(--subtext);">Other Permission (AI-assisted custom grant):</label>
+                    <div style="display:flex; gap:8px; margin-top:4px; margin-bottom:12px;">
+                        <input type="text" id="otherPermInput_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" placeholder="e.g. Access financial records or manage billing..." style="margin:0;">
+                        <button onclick="generateAIPermission('${u.email}')" style="background:var(--card-bg); border:1px solid var(--border-color); color:var(--accent); width:auto; padding:0 14px; font-size:0.8em; box-shadow:none;">✨ AI Enhance</button>
+                    </div>
+
                     <button onclick="approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
                 </div>
             `).join('');
+        }
+
+        async function generateAIPermission(email) {
+            let emailKey = email.replace(/[^a-zA-Z0-9]/g, '_');
+            let inputField = document.getElementById(`otherPermInput_${emailKey}`);
+            let promptText = inputField.value.trim();
+            if(!promptText) {
+                showToast("Please type a rough note for the custom permission first.", "error");
+                return;
+            }
+            showToast("Generating professional permission with Gemini AI...", "info");
+            let res = await fetch('/api/ai/enhance-permission', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ prompt: promptText })
+            });
+            let result = await res.json();
+            if(res.ok) {
+                inputField.value = result.enhanced;
+                showToast("Permission refined by Gemini AI!");
+            } else {
+                showToast("AI enhancement failed.", "error");
+            }
         }
 
         async function approveUser(email) {
@@ -609,10 +624,12 @@ HTML_TEMPLATE = """
             if(document.getElementById(`perm_routines_${emailKey}`).checked) permissions.push('config_routines');
             if(document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push('view_logs');
 
+            let otherPermission = document.getElementById(`otherPermInput_${emailKey}`).value.trim();
+
             await fetch('/api/admin/approve-user', {
                 method: 'POST', 
                 headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({ email, stance, permissions })
+                body: JSON.stringify({ email, stance, permissions, other_permission: otherPermission })
             });
             showToast("Employee approved successfully!");
             loadPendingUsers();
@@ -629,8 +646,11 @@ HTML_TEMPLATE = """
                 return;
             }
             container.innerHTML = data.employees.map(e => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border-color);">
-                    <span>${e.name} (${e.email}) &bull; <b style="color:var(--accent);">${e.stance || e.role}</b></span>
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color);">
+                    <div>
+                        <span>${e.name} (${e.email}) &bull; <b style="color:var(--accent);">${e.stance || e.role}</b></span>
+                        ${e.other_permission ? `<div style="font-size:0.8em; color:var(--subtext); margin-top:2px;">Custom Permission: ${e.other_permission}</div>` : ''}
+                    </div>
                     <button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>
                 </div>
             `).join('');
@@ -884,6 +904,7 @@ def signup():
         "status": "Pending" if role == "Employee" else "Approved",
         "stance": "CEO" if role == "CEO" else "",
         "permissions": ["assign_tasks", "config_routines", "view_logs"] if role == "CEO" else [],
+        "other_permission": "",
     }
 
     if role == "CEO":
@@ -937,7 +958,8 @@ def check_status():
             "status": "Approved", 
             "company_name": user.get("company_name", "Tasko Workspace"),
             "stance": user.get("stance", "Team Member"),
-            "permissions": user.get("permissions", [])
+            "permissions": user.get("permissions", []),
+            "other_permission": user.get("other_permission", "")
         })
     elif email in PENDING_USERS_DB:
         return jsonify({"status": "Pending"})
@@ -1101,6 +1123,25 @@ def verify_proof():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/ai/enhance-permission", methods=["POST"])
+def enhance_permission():
+    data = request.json
+    prompt_text = data.get("prompt", "")
+    if not client:
+        return jsonify({"enhanced": prompt_text})
+    
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                f"Rewrite the following custom workplace employee permission or special access requirement into a clear, professional, concise policy statement suitable for corporate access control:\n\n'{prompt_text}'"
+            ]
+        )
+        return jsonify({"enhanced": (response.text or prompt_text).strip()})
+    except Exception as e:
+        return jsonify({"enhanced": prompt_text})
+
+
 @app.route("/api/chat", methods=["GET", "POST"])
 def workspace_chat():
     if request.method == "POST":
@@ -1134,12 +1175,14 @@ def approve_user():
     email = data.get("email")
     stance = data.get("stance", "Team Member")
     permissions = data.get("permissions", [])
+    other_permission = data.get("other_permission", "")
 
     if email in PENDING_USERS_DB:
         user = PENDING_USERS_DB.pop(email)
         user["status"] = "Approved"
         user["stance"] = stance
         user["permissions"] = permissions
+        user["other_permission"] = other_permission
         USERS_DB[email] = user
         save_db("pending_users.json", PENDING_USERS_DB)
         save_db("users.json", USERS_DB)
@@ -1162,7 +1205,13 @@ def get_employees_list():
     company_id = request.args.get("company_id")
     return jsonify({
         "employees": [
-            {"name": u.get("name"), "email": u.get("email"), "role": u.get("role"), "stance": u.get("stance")}
+            {
+                "name": u.get("name"), 
+                "email": u.get("email"), 
+                "role": u.get("role"), 
+                "stance": u.get("stance"),
+                "other_permission": u.get("other_permission", "")
+            }
             for u in USERS_DB.values()
             if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
         ]
@@ -1187,7 +1236,7 @@ def kick_employee():
         )
         save_db("history.json", HISTORY_DB)
         return jsonify({"success": True})
-    return jsonify({"error": "Employee not found."}), 404
+    return jsonify({"error": "Employee not found."}}, 404
 
 
 @app.route("/api/admin/update-company", methods=["POST"])
