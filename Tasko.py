@@ -1236,7 +1236,7 @@ def kick_employee():
         )
         save_db("history.json", HISTORY_DB)
         return jsonify({"success": True})
-    return jsonify({"error": "Employee not found."}}, 404
+    return jsonify({"error": "Employee not found."}), 404
 
 
 @app.route("/api/admin/update-company", methods=["POST"])
