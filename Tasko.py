@@ -197,7 +197,7 @@ HTML_TEMPLATE = """
                 <button class="nav-item" onclick="switchSection('routinesSection', this)">🔄 Daily Routines</button>
                 <button id="navAssign" class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
                 <button id="navRoutinesConfig" class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙ Set Daily Routines</button>
-                <button class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
+                <button id="navApprovals" class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
                 <button id="navChat" class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
                 <button id="navLogs" class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
                 <button class="nav-item" onclick="switchSection('settingsSection', this)">⚙ Settings</button>
@@ -392,7 +392,7 @@ HTML_TEMPLATE = """
             workspaceRefreshInterval = setInterval(() => {
                 if (!currentUser) return;
                 loadDashboardData();
-                if (currentUser.role === 'CEO') {
+                if (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('handle_approvals'))) {
                     loadPendingUsers();
                     loadEmployeesManagement();
                 }
@@ -497,7 +497,6 @@ HTML_TEMPLATE = """
                     currentUser.company_name = statusData.company_name;
                     currentUser.stance = statusData.stance;
                     currentUser.permissions = statusData.permissions || [];
-                    currentUser.other_permission = statusData.other_permission || "";
                     localStorage.setItem('tasko_user', JSON.stringify(currentUser));
                 }
             }
@@ -525,10 +524,11 @@ HTML_TEMPLATE = """
             if(!isCeo) {
                 document.getElementById('navAssign').classList.toggle('hidden', !permissions.includes('assign_tasks'));
                 document.getElementById('navRoutinesConfig').classList.toggle('hidden', !permissions.includes('config_routines'));
+                document.getElementById('navApprovals').classList.toggle('hidden', !permissions.includes('handle_approvals'));
                 document.getElementById('navLogs').classList.toggle('hidden', !permissions.includes('view_logs'));
             }
 
-            if(isCeo) {
+            if(isCeo || permissions.includes('handle_approvals')) {
                 loadPendingUsers();
                 loadEmployeesManagement();
                 loadEmployeesDropdown();
@@ -572,45 +572,19 @@ HTML_TEMPLATE = """
                     </select>
                     <input type="text" id="customStance_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" placeholder="Enter custom stance..." class="hidden" style="margin-bottom:10px;">
 
-                    <label style="font-size:0.8em; color:var(--subtext); display:block; margin-bottom:6px;">Permissions Checklist:</label>
-                    <div style="display:flex; flex-direction:column; gap:6px; font-size:0.85em; margin-bottom:12px;">
-                        <label><input type="checkbox" id="perm_assign_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> Can Assign Tasks</label>
-                        <label><input type="checkbox" id="perm_routines_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Can Configure Daily Routines</label>
-                        <label><input type="checkbox" id="perm_logs_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> Can View Activity Logs</label>
-                    </div>
-
-                    <label style="font-size:0.8em; color:var(--subtext);">Other Permission (AI-assisted custom grant):</label>
-                    <div style="display:flex; gap:8px; margin-top:4px; margin-bottom:12px;">
-                        <input type="text" id="otherPermInput_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" placeholder="e.g. Access financial records or manage billing..." style="margin:0;">
-                        <button onclick="generateAIPermission('${u.email}')" style="background:var(--card-bg); border:1px solid var(--border-color); color:var(--accent); width:auto; padding:0 14px; font-size:0.8em; box-shadow:none;">✨ AI Enhance</button>
+                    <label style="font-size:0.8em; color:var(--subtext); display:block; margin-bottom:6px;">Executive & Management Permissions Checklist:</label>
+                    <div style="display:flex; flex-direction:column; gap:6px; font-size:0.85em; margin-bottom:14px;">
+                        <label><input type="checkbox" id="perm_approvals_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Handle Employee Approvals</label>
+                        <label><input type="checkbox" id="perm_kick_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Kick Employees</label>
+                        <label><input type="checkbox" id="perm_routines_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Set Daily Routines</label>
+                        <label><input type="checkbox" id="perm_stances_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Modify Stances & Roles</label>
+                        <label><input type="checkbox" id="perm_assign_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> Assign Tasks</label>
+                        <label><input type="checkbox" id="perm_logs_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> View Activity Logs</label>
                     </div>
 
                     <button onclick="approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
                 </div>
             `).join('');
-        }
-
-        async function generateAIPermission(email) {
-            let emailKey = email.replace(/[^a-zA-Z0-9]/g, '_');
-            let inputField = document.getElementById(`otherPermInput_${emailKey}`);
-            let promptText = inputField.value.trim();
-            if(!promptText) {
-                showToast("Please type a rough note for the custom permission first.", "error");
-                return;
-            }
-            showToast("Generating professional permission with Gemini AI...", "info");
-            let res = await fetch('/api/ai/enhance-permission', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ prompt: promptText })
-            });
-            let result = await res.json();
-            if(res.ok) {
-                inputField.value = result.enhanced;
-                showToast("Permission refined by Gemini AI!");
-            } else {
-                showToast("AI enhancement failed.", "error");
-            }
         }
 
         async function approveUser(email) {
@@ -620,16 +594,17 @@ HTML_TEMPLATE = """
             if(!stance) stance = "Team Member";
 
             let permissions = [];
-            if(document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push('assign_tasks');
+            if(document.getElementById(`perm_approvals_${emailKey}`).checked) permissions.push('handle_approvals');
+            if(document.getElementById(`perm_kick_${emailKey}`).checked) permissions.push('kick_employees');
             if(document.getElementById(`perm_routines_${emailKey}`).checked) permissions.push('config_routines');
+            if(document.getElementById(`perm_stances_${emailKey}`).checked) permissions.push('modify_stances');
+            if(document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push('assign_tasks');
             if(document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push('view_logs');
-
-            let otherPermission = document.getElementById(`otherPermInput_${emailKey}`).value.trim();
 
             await fetch('/api/admin/approve-user', {
                 method: 'POST', 
                 headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({ email, stance, permissions, other_permission: otherPermission })
+                body: JSON.stringify({ email, stance, permissions })
             });
             showToast("Employee approved successfully!");
             loadPendingUsers();
@@ -649,20 +624,25 @@ HTML_TEMPLATE = """
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color);">
                     <div>
                         <span>${e.name} (${e.email}) &bull; <b style="color:var(--accent);">${e.stance || e.role}</b></span>
-                        ${e.other_permission ? `<div style="font-size:0.8em; color:var(--subtext); margin-top:2px;">Custom Permission: ${e.other_permission}</div>` : ''}
+                        <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${(e.permissions || []).join(', ') || 'None'}</div>
                     </div>
-                    <button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>
+                    ${(currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees'))) ? `<button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
                 </div>
             `).join('');
         }
 
         async function kickEmployee(email) {
             if(!confirm("Are you sure you want to kick this employee?")) return;
-            await fetch('/api/admin/kick-employee', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, company_id: currentUser.company_id})});
-            showToast("Employee removed from workspace.", "info");
-            loadEmployeesManagement();
-            loadEmployeesDropdown();
-            loadDashboardData();
+            let res = await fetch('/api/admin/kick-employee', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, company_id: currentUser.company_id})});
+            if(res.ok) {
+                showToast("Employee removed from workspace.", "info");
+                loadEmployeesManagement();
+                loadEmployeesDropdown();
+                loadDashboardData();
+            } else {
+                let err = await res.json();
+                showToast(err.error || "Failed to kick employee.", "error");
+            }
         }
 
         async function loadEmployeesDropdown() {
@@ -903,8 +883,7 @@ def signup():
         "role": role,
         "status": "Pending" if role == "Employee" else "Approved",
         "stance": "CEO" if role == "CEO" else "",
-        "permissions": ["assign_tasks", "config_routines", "view_logs"] if role == "CEO" else [],
-        "other_permission": "",
+        "permissions": ["handle_approvals", "kick_employees", "config_routines", "modify_stances", "assign_tasks", "view_logs"] if role == "CEO" else [],
     }
 
     if role == "CEO":
@@ -958,8 +937,7 @@ def check_status():
             "status": "Approved", 
             "company_name": user.get("company_name", "Tasko Workspace"),
             "stance": user.get("stance", "Team Member"),
-            "permissions": user.get("permissions", []),
-            "other_permission": user.get("other_permission", "")
+            "permissions": user.get("permissions", [])
         })
     elif email in PENDING_USERS_DB:
         return jsonify({"status": "Pending"})
@@ -1123,25 +1101,6 @@ def verify_proof():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/ai/enhance-permission", methods=["POST"])
-def enhance_permission():
-    data = request.json
-    prompt_text = data.get("prompt", "")
-    if not client:
-        return jsonify({"enhanced": prompt_text})
-    
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                f"Rewrite the following custom workplace employee permission or special access requirement into a clear, professional, concise policy statement suitable for corporate access control:\n\n'{prompt_text}'"
-            ]
-        )
-        return jsonify({"enhanced": (response.text or prompt_text).strip()})
-    except Exception as e:
-        return jsonify({"enhanced": prompt_text})
-
-
 @app.route("/api/chat", methods=["GET", "POST"])
 def workspace_chat():
     if request.method == "POST":
@@ -1175,14 +1134,12 @@ def approve_user():
     email = data.get("email")
     stance = data.get("stance", "Team Member")
     permissions = data.get("permissions", [])
-    other_permission = data.get("other_permission", "")
 
     if email in PENDING_USERS_DB:
         user = PENDING_USERS_DB.pop(email)
         user["status"] = "Approved"
         user["stance"] = stance
         user["permissions"] = permissions
-        user["other_permission"] = other_permission
         USERS_DB[email] = user
         save_db("pending_users.json", PENDING_USERS_DB)
         save_db("users.json", USERS_DB)
@@ -1210,7 +1167,7 @@ def get_employees_list():
                 "email": u.get("email"), 
                 "role": u.get("role"), 
                 "stance": u.get("stance"),
-                "other_permission": u.get("other_permission", "")
+                "permissions": u.get("permissions", [])
             }
             for u in USERS_DB.values()
             if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
