@@ -428,15 +428,19 @@ HTML_TEMPLATE = """
 
         async function registerAccount() {
             let signupData = {
-                name: document.getElementById('suName').value,
-                email: document.getElementById('suEmail').value,
+                name: document.getElementById('suName').value.trim(),
+                email: document.getElementById('suEmail').value.trim(),
                 password: document.getElementById('suPassword').value,
                 role: document.getElementById('suRole').value,
-                company_name: document.getElementById('suCompanyName').value,
-                company_id: document.getElementById('suCompanyId').value
+                company_name: document.getElementById('suCompanyName').value.trim(),
+                company_id: document.getElementById('suCompanyId').value.trim()
             };
             if(!signupData.name || !signupData.email || !signupData.password) {
-                showToast("Please fill out all fields.", "error");
+                showToast("Please fill out all mandatory fields.", "error");
+                return;
+            }
+            if(signupData.role === 'Employee' && !signupData.company_id) {
+                showToast("Workspace Company ID is required for employee sign up.", "error");
                 return;
             }
             let res = await fetch('/api/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(signupData)});
@@ -451,9 +455,13 @@ HTML_TEMPLATE = """
 
         async function login() {
             let data = {
-                email: document.getElementById('loginEmail').value,
+                email: document.getElementById('loginEmail').value.trim(),
                 password: document.getElementById('loginPassword').value
             };
+            if(!data.email || !data.password) {
+                showToast("Please enter both email and password.", "error");
+                return;
+            }
             let res = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
             let result = await res.json();
             if(res.ok) {
@@ -539,7 +547,7 @@ HTML_TEMPLATE = """
         }
 
         async function updateCompanyName() {
-            let newName = document.getElementById('settingsCompanyName').value;
+            let newName = document.getElementById('settingsCompanyName').value.trim();
             if(!newName) { showToast("Company name cannot be empty.", "error"); return; }
             let res = await fetch('/api/admin/update-company', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({company_id: currentUser.company_id, company_name: newName})});
             if(res.ok) {
@@ -590,7 +598,7 @@ HTML_TEMPLATE = """
         async function approveUser(email) {
             let emailKey = email.replace(/[^a-zA-Z0-9]/g, '_');
             let stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
-            let stance = stanceDropdown === 'Custom' ? document.getElementById(`customStance_${emailKey}`).value : stanceDropdown;
+            let stance = stanceDropdown === 'Custom' ? document.getElementById(`customStance_${emailKey}`).value.trim() : stanceDropdown;
             if(!stance) stance = "Team Member";
 
             let permissions = [];
@@ -655,14 +663,14 @@ HTML_TEMPLATE = """
 
         async function createTask() {
             let data = {
-                title: document.getElementById('taskTitle').value,
+                title: document.getElementById('taskTitle').value.trim(),
                 assigned_to: document.getElementById('taskAssigneeSelect').value,
                 deadline: document.getElementById('taskDeadline').value,
                 priority: document.getElementById('taskPriority').value,
                 company_id: currentUser.company_id
             };
             if(!data.title || !data.assigned_to) {
-                showToast("Please fill out task title and assignee.", "error");
+                showToast("Please fill out task title and select an assignee.", "error");
                 return;
             }
             await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
@@ -674,12 +682,12 @@ HTML_TEMPLATE = """
 
         async function createDailyRoutine() {
             let data = {
-                title: document.getElementById('routineTitle').value,
+                title: document.getElementById('routineTitle').value.trim(),
                 assigned_to: document.getElementById('routineAssigneeSelect').value,
                 company_id: currentUser.company_id
             };
             if(!data.title || !data.assigned_to) {
-                showToast("Please fill out routine title and assignee.", "error");
+                showToast("Please fill out routine title and select an assignee.", "error");
                 return;
             }
             await fetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
@@ -868,13 +876,17 @@ def favicon():
 @app.route("/api/signup", methods=["POST"])
 def signup():
     data = request.json
-    email = data.get("email")
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+    role = data.get("role", "Employee")
+
+    # 1. Format / Type Checker (All fillups)
+    if not name or not email or not password:
+        return jsonify({"error": "All fields (name, email, password) are required and cannot be blank."}), 400
+
     if email in USERS_DB or email in PENDING_USERS_DB:
         return jsonify({"error": "Email already registered."}), 400
-
-    name = data.get("name")
-    password = data.get("password")
-    role = data.get("role", "Employee")
 
     user_data = {
         "name": name,
@@ -887,29 +899,45 @@ def signup():
     }
 
     if role == "CEO":
+        company_name = (data.get("company_name") or "").strip()
+        if not company_name:
+            return jsonify({"error": "Company name cannot be blank when creating a workspace."}), 400
+
         company_id = str(random.randint(1000000000, 9999999999))
         user_data["company_id"] = company_id
-        user_data["company_name"] = data.get("company_name", "MyCorp")
+        user_data["company_name"] = company_name
         USERS_DB[email] = user_data
         save_db("users.json", USERS_DB)
         HISTORY_DB.insert(
             0,
             {
                 "company_id": company_id,
-                "action": f"Company '{user_data['company_name']}' created by CEO {name}",
+                "action": f"Company '{company_name}' created by CEO {name}",
                 "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             },
         )
         save_db("history.json", HISTORY_DB)
     else:
-        company_id = data.get("company_id")
-        user_data["company_id"] = company_id
+        company_id = (data.get("company_id") or "").strip()
+        
+        # 1. Format Checker for Workspace ID
+        if not company_id:
+            return jsonify({"error": "Workspace Company ID is required."}), 400
+
+        # 2. Existence Checker (Applicable fillups) -> Check if any CEO/Workspace matches this ID
+        valid_workspace_exists = False
+        workspace_matched_name = "Tasko Workspace"
         for u in USERS_DB.values():
             if str(u.get("company_id")) == str(company_id) and u.get("role") == "CEO":
-                user_data["company_name"] = u.get("company_name", "Tasko Workspace")
+                valid_workspace_exists = True
+                workspace_matched_name = u.get("company_name", "Tasko Workspace")
                 break
-        if "company_name" not in user_data:
-            user_data["company_name"] = "Tasko Workspace"
+
+        if not valid_workspace_exists:
+            return jsonify({"error": "Invalid Workspace ID. Company does not exist in our system."}), 404
+
+        user_data["company_id"] = company_id
+        user_data["company_name"] = workspace_matched_name
         PENDING_USERS_DB[email] = user_data
         save_db("pending_users.json", PENDING_USERS_DB)
 
@@ -919,9 +947,14 @@ def signup():
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.json
-    email = data.get("email")
-    password = data.get("password")
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
 
+    # 1. Format / Type Checker
+    if not email or not password:
+        return jsonify({"error": "Email and password cannot be blank."}), 400
+
+    # 2. Existence Checker
     user = USERS_DB.get(email) or PENDING_USERS_DB.get(email)
     if not user or user.get("password") != password:
         return jsonify({"error": "Invalid email or password."}), 401
@@ -967,11 +1000,14 @@ def get_data():
 @app.route("/api/tasks", methods=["POST"])
 def add_task():
     data = request.json
-    title = data.get("title")
+    title = (data.get("title") or "").strip()
     assigned_to = data.get("assigned_to")
     deadline = data.get("deadline")
     priority = data.get("priority", "Medium")
     company_id = data.get("company_id")
+
+    if not title or not assigned_to:
+        return jsonify({"error": "Task title and assignee cannot be blank."}), 400
 
     TASKS_DB.append({
         "title": title,
@@ -999,9 +1035,12 @@ def add_task():
 @app.route("/api/routines", methods=["POST"])
 def add_routine():
     data = request.json
-    title = data.get("title")
+    title = (data.get("title") or "").strip()
     assigned_to = data.get("assigned_to")
     company_id = data.get("company_id")
+
+    if not title or not assigned_to:
+        return jsonify({"error": "Routine title and assignee cannot be blank."}), 400
 
     DAILY_ROUTINES_DB.append({
         "title": title,
@@ -1028,7 +1067,7 @@ def complete_routine():
     index = data.get("index")
     today_date = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    if not (0 <= index < len(DAILY_ROUTINES_DB)):
+    if index is None or not (0 <= index < len(DAILY_ROUTINES_DB)):
         return jsonify({"error": "Routine not found."}), 404
 
     if today_date not in DAILY_LOGS_DB:
@@ -1057,7 +1096,7 @@ def verify_proof():
     image_b64 = data.get("image")
     mime_type = data.get("mime_type", "image/jpeg")
 
-    if not (0 <= index < len(TASKS_DB)):
+    if index is None or not (0 <= index < len(TASKS_DB)):
         return jsonify({"error": "Task not found."}), 404
 
     task = TASKS_DB[index]
@@ -1106,10 +1145,14 @@ def workspace_chat():
     if request.method == "POST":
         data = request.json
         company_id = data.get("company_id")
+        text = (data.get("text") or "").strip()
+        if not text:
+            return jsonify({"error": "Message text cannot be blank."}), 400
+
         MESSAGES_DB.append({
             "company_id": company_id,
             "sender": data.get("sender"),
-            "text": data.get("text"),
+            "text": text,
             "time": datetime.datetime.now().strftime("%H:%M"),
         })
         save_db("messages.json", MESSAGES_DB)
@@ -1132,8 +1175,11 @@ def get_pending_users():
 def approve_user():
     data = request.json
     email = data.get("email")
-    stance = data.get("stance", "Team Member")
+    stance = (data.get("stance") or "").strip()
     permissions = data.get("permissions", [])
+
+    if not stance:
+        stance = "Team Member"
 
     if email in PENDING_USERS_DB:
         user = PENDING_USERS_DB.pop(email)
@@ -1200,7 +1246,11 @@ def kick_employee():
 def update_company():
     data = request.json
     company_id = data.get("company_id")
-    new_name = data.get("company_name")
+    new_name = (data.get("company_name") or "").strip()
+    
+    if not new_name:
+        return jsonify({"error": "Company name cannot be blank."}), 400
+
     for u in USERS_DB.values():
         if str(u.get("company_id")) == str(company_id):
             u["company_name"] = new_name
