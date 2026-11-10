@@ -458,7 +458,6 @@ HTML_TEMPLATE = """
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
             document.getElementById('settingsRefreshRate').value = savedRefreshRate;
             
-            // Initialize Apple ID SDK safely
             try {
                 AppleID.auth.init({
                     clientId: 'com.tasko.workspace.app',
@@ -551,13 +550,10 @@ HTML_TEMPLATE = """
             }
         }
 
-        // --- Bulletproof Social Auth Handler (Avoids 401 Client Error) ---
-
         function triggerGoogleSignIn() {
             showLoader("Connecting to Google Account...");
             setTimeout(() => {
                 hideLoader();
-                // Prompt user for their google email directly or use a clean mock popup prompt
                 let userEmail = prompt("Enter your Google Account email for Tasko:", "jindalbhavik21@gmail.com");
                 if (userEmail && userEmail.includes("@")) {
                     pendingSocialEmail = userEmail.trim();
@@ -1448,7 +1444,7 @@ def verify_proof():
         )
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 prompt,
