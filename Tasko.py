@@ -113,7 +113,6 @@ HTML_TEMPLATE = """
         input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.18), 0 4px 12px rgba(0,0,0,0.2); background: var(--card-bg); transform: translateY(-1px); }
         
         button { background: var(--accent); cursor: pointer; font-weight: 500; border: none; color: white; padding: 12px 20px; border-radius: 10px; width: 100%; font-size: 0.9em; transition: all 0.25s var(--ease-spring); display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 16px rgba(94, 106, 210, 0.35); position: relative; overflow: hidden; }
-        button::after { content: ''; position: absolute; top: 50%; left: 50%; width: 5px; height: 5px; background: rgba(255, 255, 255, 0.4); opacity: 0; border-radius: 100%; transform: scale(1, 1) translate(-50%, -50%); transform-origin: 50% 50%; }
         button:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(94, 106, 210, 0.5); }
         button:active { transform: translateY(1px) scale(0.97); box-shadow: 0 2px 10px rgba(94, 106, 210, 0.3); }
         
@@ -173,11 +172,11 @@ HTML_TEMPLATE = """
             <div id="loginForm">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Sign in to your account</h3>
                 
-                <button class="social-btn" onclick="socialLogin('Google', this)">
+                <button class="social-btn" onclick="openSocialModal('Google')">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h5.51c-.24 1.38-1.54 4.05-5.51 4.05-3.32 0-6.03-2.75-6.03-6.13s2.71-6.13 6.03-6.13c1.89 0 3.15.81 3.87 1.5l2.04-1.99C16.89 3.73 14.88 3 12.18 3 7.12 3 3 7.12 3 12.18s4.12 9.18 9.18 9.18c5.3 0 8.81-3.73 8.81-8.98 0-.62-.07-1.09-.17-1.28z"/></svg>
                     Continue with Google
                 </button>
-                <button class="social-btn" onclick="socialLogin('Apple', this)">
+                <button class="social-btn" onclick="openSocialModal('Apple')">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 5.75c.61-.75 1.02-1.8 0.91-2.85-.88.04-1.95.59-2.57 1.34-.57.67-1.07 1.74-.94 2.78 1 .08 1.99-.48 2.6-1.27z"/></svg>
                     Continue with Apple
                 </button>
@@ -204,14 +203,25 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
+            <div id="socialModal" class="hidden">
+                <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;" id="socialModalTitle">Continue with Provider</h3>
+                <p style="font-size:0.85em; color:var(--subtext); margin-bottom:14px;">Enter your email and workspace ID to proceed.</p>
+                <input type="email" id="socialEmail" placeholder="name@company.com">
+                <input type="text" id="socialCompanyId" placeholder="Workspace Company ID">
+                <div style="display:flex; gap:10px;">
+                    <button onclick="closeSocialModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
+                    <button onclick="socialLoginFinal(this)">Verify & Continue</button>
+                </div>
+            </div>
+
             <div id="signupForm" class="hidden">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Create a new account</h3>
                 
-                <button class="social-btn" onclick="socialLogin('Google', this)">
+                <button class="social-btn" onclick="openSocialModal('Google')">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h5.51c-.24 1.38-1.54 4.05-5.51 4.05-3.32 0-6.03-2.75-6.03-6.13s2.71-6.13 6.03-6.13c1.89 0 3.15.81 3.87 1.5l2.04-1.99C16.89 3.73 14.88 3 12.18 3 7.12 3 3 7.12 3 12.18s4.12 9.18 9.18 9.18c5.3 0 8.81-3.73 8.81-8.98 0-.62-.07-1.09-.17-1.28z"/></svg>
                     Sign up with Google
                 </button>
-                <button class="social-btn" onclick="socialLogin('Apple', this)">
+                <button class="social-btn" onclick="openSocialModal('Apple')">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 5.75c.61-.75 1.02-1.8 0.91-2.85-.88.04-1.95.59-2.57 1.34-.57.67-1.07 1.74-.94 2.78 1 .08 1.99-.48 2.6-1.27z"/></svg>
                     Sign up with Apple
                 </button>
@@ -426,6 +436,7 @@ HTML_TEMPLATE = """
         let savedRefreshRate = localStorage.getItem('tasko_refresh_rate') || '10';
         let workspaceRefreshInterval = null;
         let approvalCheckInterval = null;
+        let activeSocialProvider = '';
 
         window.onload = () => {
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
@@ -498,6 +509,7 @@ HTML_TEMPLATE = """
         function toggleAuth(formType) {
             document.getElementById('loginForm').classList.remove('hidden');
             document.getElementById('loginCompanyModal').classList.add('hidden');
+            document.getElementById('socialModal').classList.add('hidden');
             document.getElementById('signupForm').classList.toggle('hidden', formType !== 'signup');
             document.getElementById('signupCompanyModal').classList.add('hidden');
             document.getElementById('loginForm').classList.toggle('hidden', formType !== 'login');
@@ -515,24 +527,42 @@ HTML_TEMPLATE = """
             }
         }
 
-        async function socialLogin(provider, btn) {
-            let email = prompt(`Enter your ${provider} account email address:`);
-            if(!email) return;
-            let company_id = prompt("Enter your Workspace Company ID:");
-            if(!company_id) return;
+        function openSocialModal(provider) {
+            activeSocialProvider = provider;
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('signupForm').classList.add('hidden');
+            document.getElementById('socialModalTitle').innerText = `Continue with ${provider}`;
+            let modal = document.getElementById('socialModal');
+            modal.classList.remove('hidden');
+            modal.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
+        }
+
+        function closeSocialModal() {
+            document.getElementById('socialModal').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+        }
+
+        async function socialLoginFinal(btn) {
+            let email = document.getElementById('socialEmail').value.trim();
+            let company_id = document.getElementById('socialCompanyId').value.trim();
+
+            if(!email || !company_id) {
+                showToast("Please fill in both email and Workspace ID.", "error");
+                return;
+            }
 
             setButtonLoading(btn, true);
             let res = await fetch('/api/social-login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({email, provider, company_id})
+                body: JSON.stringify({email, provider: activeSocialProvider, company_id})
             });
             setButtonLoading(btn, false);
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
-                showToast(`Successfully authenticated with ${provider}!`);
+                showToast(`Successfully authenticated with ${activeSocialProvider}!`);
                 checkLoginState();
             } else {
                 showToast(result.error, "error");
