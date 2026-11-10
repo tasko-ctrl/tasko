@@ -487,9 +487,17 @@ HTML_TEMPLATE = """
         async function checkLoginState() {
             if(!currentUser) return;
 
+            // Check status / if kicked for all user types
+            let statusRes = await fetch(`/api/check-status?email=${currentUser.email}`);
+            let statusData = await statusRes.json();
+            
+            if(statusData.status === 'Kicked') {
+                showToast("You have been removed from the workspace by the CEO.", "error");
+                logout();
+                return;
+            }
+
             if(currentUser.role === 'Employee') {
-                let statusRes = await fetch(`/api/check-status?email=${currentUser.email}`);
-                let statusData = await statusRes.json();
                 if(statusData.status === 'Pending') {
                     document.getElementById('authContainer').style.display = 'none';
                     document.getElementById('dashboardContainer').classList.add('hidden');
@@ -881,7 +889,6 @@ def signup():
     password = data.get("password") or ""
     role = data.get("role", "Employee")
 
-    # 1. Format / Type Checker (All fillups)
     if not name or not email or not password:
         return jsonify({"error": "All fields (name, email, password) are required and cannot be blank."}), 400
 
@@ -920,11 +927,9 @@ def signup():
     else:
         company_id = (data.get("company_id") or "").strip()
         
-        # 1. Format Checker for Workspace ID
         if not company_id:
             return jsonify({"error": "Workspace Company ID is required."}), 400
 
-        # 2. Existence Checker (Applicable fillups) -> Check if any CEO/Workspace matches this ID
         valid_workspace_exists = False
         workspace_matched_name = "Tasko Workspace"
         for u in USERS_DB.values():
@@ -950,11 +955,9 @@ def login():
     email = (data.get("email") or "").strip()
     password = data.get("password") or ""
 
-    # 1. Format / Type Checker
     if not email or not password:
         return jsonify({"error": "Email and password cannot be blank."}), 400
 
-    # 2. Existence Checker
     user = USERS_DB.get(email) or PENDING_USERS_DB.get(email)
     if not user or user.get("password") != password:
         return jsonify({"error": "Invalid email or password."}), 401
@@ -974,7 +977,9 @@ def check_status():
         })
     elif email in PENDING_USERS_DB:
         return jsonify({"status": "Pending"})
-    return jsonify({"status": "NotFound"})
+    
+    # If the user is missing from both databases, they were kicked!
+    return jsonify({"status": "Kicked"})
 
 
 @app.route("/api/data", methods=["GET"])
