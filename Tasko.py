@@ -62,7 +62,8 @@ HTML_TEMPLATE = """
             --subtext: #8a95a5;
             --accent: #5e6ad2;
             --accent-hover: #727ffd;
-            --ease-linear: cubic-bezier(0.16, 1, 0.3, 1);
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+            --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .light-theme {
             --bg-color: #f8fafc;
@@ -76,69 +77,84 @@ HTML_TEMPLATE = """
             --accent: #5e6ad2;
             --accent-hover: #4f58bc;
         }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.3s var(--ease-linear), color 0.3s var(--ease-linear); }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.4s var(--ease-out-expo), color 0.4s var(--ease-out-expo); }
         
-        .sidebar { width: 265px; min-width: 265px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 24px; box-sizing: border-box; height: 100vh; }
-        .sidebar-brand { font-size: 1.15em; font-weight: 600; display: flex; align-items: center; gap: 10px; margin-bottom: 32px; color: var(--text-color); letter-spacing: -0.01em; }
+        .sidebar { width: 265px; min-width: 265px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 24px; box-sizing: border-box; height: 100vh; transition: all 0.3s var(--ease-out-expo); }
+        .sidebar-brand { font-size: 1.15em; font-weight: 600; display: flex; align-items: center; gap: 10px; margin-bottom: 32px; color: var(--text-color); letter-spacing: -0.01em; animation: fadeInDown 0.5s var(--ease-out-expo); }
         .sidebar-menu { display: flex; flex-direction: column; gap: 6px; flex: 1; overflow-y: auto; }
         
-        .nav-item { padding: 10px 14px; border-radius: 8px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.9em; transition: all 0.2s var(--ease-linear); border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; box-sizing: border-box; position: relative; }
-        .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-color); transform: translateX(3px); }
-        .nav-item.active { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+        .nav-item { padding: 11px 14px; border-radius: 10px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.9em; transition: all 0.25s var(--ease-out-expo); border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; box-sizing: border-box; position: relative; overflow: hidden; }
+        .nav-item::after { content: ''; position: absolute; left: 0; bottom: 0; width: 3px; height: 0; background: var(--accent); transition: height 0.2s var(--ease-out-expo); border-radius: 0 4px 4px 0; }
+        .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-color); transform: translateX(4px); }
+        .nav-item.active { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); box-shadow: 0 8px 24px rgba(0,0,0,0.3); transform: translateX(4px); }
+        .nav-item.active::after { height: 60%; }
 
-        .main-content { flex: 1; overflow-y: auto; padding: 48px; box-sizing: border-box; }
+        .main-content { flex: 1; overflow-y: auto; padding: 48px; box-sizing: border-box; position: relative; }
         
-        @keyframes linearEntrance {
-            from { opacity: 0; transform: translateY(10px) scale(0.99); }
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: translateY(14px) scale(0.98); }
             to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        .section-view { animation: linearEntrance 0.3s var(--ease-linear) forwards; }
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spinLoader {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .section-view { animation: fadeInScale 0.4s var(--ease-out-expo) forwards; }
 
-        .card { background: var(--card-bg); padding: 32px; border-radius: 14px; margin-bottom: 24px; box-shadow: 0 8px 30px -6px rgba(0,0,0,0.5); border: 1px solid var(--border-color); transition: all 0.25s var(--ease-linear); position: relative; overflow: hidden; }
-        .card:hover { border-color: rgba(94, 106, 210, 0.5); transform: translateY(-2px); box-shadow: 0 12px 40px -8px rgba(94, 106, 210, 0.2); }
+        .card { background: var(--card-bg); padding: 32px; border-radius: 16px; margin-bottom: 24px; box-shadow: 0 10px 35px -8px rgba(0,0,0,0.5); border: 1px solid var(--border-color); transition: all 0.3s var(--ease-out-expo); position: relative; overflow: hidden; }
+        .card:hover { border-color: rgba(94, 106, 210, 0.4); transform: translateY(-3px); box-shadow: 0 16px 45px -10px rgba(94, 106, 210, 0.2); }
         
-        input, select, textarea { padding: 12px 16px; margin: 8px 0 18px 0; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); width: 100%; box-sizing: border-box; font-size: 0.9em; outline: none; transition: all 0.2s var(--ease-linear); }
-        input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.15); background: var(--card-bg); }
+        input, select, textarea { padding: 12px 16px; margin: 8px 0 18px 0; border-radius: 10px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); width: 100%; box-sizing: border-box; font-size: 0.9em; outline: none; transition: all 0.25s var(--ease-out-expo); }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.18), 0 4px 12px rgba(0,0,0,0.2); background: var(--card-bg); transform: translateY(-1px); }
         
-        button { background: var(--accent); cursor: pointer; font-weight: 500; border: none; color: white; padding: 12px 20px; border-radius: 8px; width: 100%; font-size: 0.9em; transition: all 0.2s var(--ease-linear); display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(94, 106, 210, 0.4); }
-        button:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(94, 106, 210, 0.5); }
-        button:active { transform: translateY(0) scale(0.98); box-shadow: 0 2px 8px rgba(94, 106, 210, 0.3); }
+        button { background: var(--accent); cursor: pointer; font-weight: 500; border: none; color: white; padding: 12px 20px; border-radius: 10px; width: 100%; font-size: 0.9em; transition: all 0.25s var(--ease-spring); display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 16px rgba(94, 106, 210, 0.35); position: relative; overflow: hidden; }
+        button::after { content: ''; position: absolute; top: 50%; left: 50%; width: 5px; height: 5px; background: rgba(255, 255, 255, 0.4); opacity: 0; border-radius: 100%; transform: scale(1, 1) translate(-50%, -50%); transform-origin: 50% 50%; }
+        button:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(94, 106, 210, 0.5); }
+        button:active { transform: translateY(1px) scale(0.97); box-shadow: 0 2px 10px rgba(94, 106, 210, 0.3); }
         
         .social-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 10px; box-shadow: none; font-weight: 500; }
-        .social-btn:hover { background: var(--card-hover); border-color: var(--accent); transform: translateY(-1px); box-shadow: none; }
+        .social-btn:hover { background: var(--card-hover); border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+
+        .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spinLoader 0.6s linear infinite; display: inline-block; }
 
         .hidden { display: none !important; }
         table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.9em; }
-        th, td { padding: 14px; border-bottom: 1px solid var(--border-color); text-align: left; }
+        th, td { padding: 14px; border-bottom: 1px solid var(--border-color); text-align: left; transition: background 0.2s; }
+        tr:hover td { background: rgba(255,255,255,0.015); }
         th { background: var(--input-bg); color: var(--subtext); font-weight: 600; text-transform: uppercase; font-size: 0.75em; letter-spacing: 0.05em; }
         
-        .badge-done { background: rgba(5, 150, 105, 0.15); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
-        .badge-pending { background: rgba(217, 119, 6, 0.15); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
-        .badge-failed { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+        .badge-done { background: rgba(5, 150, 105, 0.15); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; animation: fadeInScale 0.3s var(--ease-out-expo); }
+        .badge-pending { background: rgba(217, 119, 6, 0.15); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; animation: fadeInScale 0.3s var(--ease-out-expo); }
+        .badge-failed { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; animation: fadeInScale 0.3s var(--ease-out-expo); }
         
         @keyframes pulseGlow {
-            0% { transform: scale(0.95); opacity: 0.8; }
-            50% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 12px currentColor; }
-            100% { transform: scale(0.95); opacity: 0.8; }
+            0% { transform: scale(0.92); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 14px currentColor; }
+            100% { transform: scale(0.92); opacity: 0.8; }
         }
-        .pulsing-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulseGlow 2s infinite ease-in-out; }
+        .pulsing-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulseGlow 1.8s infinite ease-in-out; }
 
         #toastContainer { position: fixed; top: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-        .toast { background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 14px 20px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.9em; display: flex; align-items: center; gap: 12px; pointer-events: auto; animation: toastIn 0.3s var(--ease-linear) forwards; min-width: 280px; }
+        .toast { background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 14px 22px; border-radius: 12px; box-shadow: 0 12px 35px rgba(0,0,0,0.5); font-size: 0.9em; display: flex; align-items: center; gap: 12px; pointer-events: auto; animation: toastIn 0.35s var(--ease-out-expo) forwards; min-width: 300px; backdrop-filter: blur(8px); }
         .toast.success { border-left: 4px solid #34d399; }
         .toast.error { border-left: 4px solid #f87171; }
         .toast.info { border-left: 4px solid var(--accent); }
         @keyframes toastIn {
-            from { opacity: 0; transform: translateY(-15px) scale(0.95); }
+            from { opacity: 0; transform: translateY(-20px) scale(0.95); }
             to { opacity: 1; transform: translateY(0) scale(1); }
         }
         @keyframes toastOut {
             from { opacity: 1; transform: translateY(0) scale(1); }
-            to { opacity: 0; transform: translateY(-15px) scale(0.95); }
+            to { opacity: 0; transform: translateY(-20px) scale(0.95); }
         }
 
-        .chat-box { height: 400px; overflow-y: scroll; border: 1px solid var(--border-color); background: var(--input-bg); padding: 18px; border-radius: 10px; margin-bottom: 16px; scroll-behavior: smooth; }
-        .chat-message { margin-bottom: 14px; font-size: 0.9em; line-height: 1.5; animation: linearEntrance 0.25s var(--ease-linear); }
+        .chat-box { height: 400px; overflow-y: scroll; border: 1px solid var(--border-color); background: var(--input-bg); padding: 18px; border-radius: 12px; margin-bottom: 16px; scroll-behavior: smooth; }
+        .chat-message { margin-bottom: 14px; font-size: 0.9em; line-height: 1.5; animation: fadeInScale 0.3s var(--ease-out-expo); }
         h2, h3, h4 { margin-top: 0; font-weight: 600; letter-spacing: -0.01em; }
         a { color: var(--accent); text-decoration: none; transition: color 0.15s; }
         a:hover { color: var(--accent-hover); text-decoration: underline; }
@@ -148,20 +164,20 @@ HTML_TEMPLATE = """
     <div id="toastContainer"></div>
 
     <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
-        <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: linearEntrance 0.4s var(--ease-linear);">
+        <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: fadeInScale 0.5s var(--ease-out-expo);">
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:28px;">
-                <div style="width:10px; height:10px; background:var(--accent); border-radius:50%; box-shadow: 0 0 16px var(--accent);"></div>
+                <div style="width:10px; height:10px; background:var(--accent); border-radius:50%; box-shadow: 0 0 16px var(--accent); animation: pulseGlow 2s infinite;"></div>
                 <h2 style="margin:0; font-size: 1.3em; letter-spacing:-0.02em;">Tasko Workspace</h2>
             </div>
             
             <div id="loginForm">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Sign in to your account</h3>
                 
-                <button class="social-btn" onclick="socialLogin('Google')">
+                <button class="social-btn" onclick="socialLogin('Google', this)">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h5.51c-.24 1.38-1.54 4.05-5.51 4.05-3.32 0-6.03-2.75-6.03-6.13s2.71-6.13 6.03-6.13c1.89 0 3.15.81 3.87 1.5l2.04-1.99C16.89 3.73 14.88 3 12.18 3 7.12 3 3 7.12 3 12.18s4.12 9.18 9.18 9.18c5.3 0 8.81-3.73 8.81-8.98 0-.62-.07-1.09-.17-1.28z"/></svg>
                     Continue with Google
                 </button>
-                <button class="social-btn" onclick="socialLogin('Apple')">
+                <button class="social-btn" onclick="socialLogin('Apple', this)">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 5.75c.61-.75 1.02-1.8 0.91-2.85-.88.04-1.95.59-2.57 1.34-.57.67-1.07 1.74-.94 2.78 1 .08 1.99-.48 2.6-1.27z"/></svg>
                     Continue with Apple
                 </button>
@@ -174,7 +190,7 @@ HTML_TEMPLATE = """
 
                 <input type="email" id="loginEmail" placeholder="name@company.com">
                 <input type="password" id="loginPassword" placeholder="••••••••••••">
-                <button onclick="nextLoginStep()">Continue to Workspace ID</button>
+                <button onclick="nextLoginStep(this)">Continue to Workspace ID</button>
                 <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Don't have an account? <a href="#" onclick="toggleAuth('signup')">Sign up</a></p>
             </div>
 
@@ -184,18 +200,18 @@ HTML_TEMPLATE = """
                 <input type="text" id="loginCompanyId" placeholder="Workspace Company ID">
                 <div style="display:flex; gap:10px;">
                     <button onclick="backToLoginCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
-                    <button onclick="loginFinal()">Sign In</button>
+                    <button onclick="loginFinal(this)">Sign In</button>
                 </div>
             </div>
 
             <div id="signupForm" class="hidden">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Create a new account</h3>
                 
-                <button class="social-btn" onclick="socialLogin('Google')">
+                <button class="social-btn" onclick="socialLogin('Google', this)">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h5.51c-.24 1.38-1.54 4.05-5.51 4.05-3.32 0-6.03-2.75-6.03-6.13s2.71-6.13 6.03-6.13c1.89 0 3.15.81 3.87 1.5l2.04-1.99C16.89 3.73 14.88 3 12.18 3 7.12 3 3 7.12 3 12.18s4.12 9.18 9.18 9.18c5.3 0 8.81-3.73 8.81-8.98 0-.62-.07-1.09-.17-1.28z"/></svg>
                     Sign up with Google
                 </button>
-                <button class="social-btn" onclick="socialLogin('Apple')">
+                <button class="social-btn" onclick="socialLogin('Apple', this)">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 5.75c.61-.75 1.02-1.8 0.91-2.85-.88.04-1.95.59-2.57 1.34-.57.67-1.07 1.74-.94 2.78 1 .08 1.99-.48 2.6-1.27z"/></svg>
                     Sign up with Apple
                 </button>
@@ -214,7 +230,7 @@ HTML_TEMPLATE = """
                     <option value="CEO">CEO (Create Workspace)</option>
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
-                <button onclick="nextSignupStep()" style="margin-top:12px;">Continue to Workspace ID</button>
+                <button onclick="nextSignupStep(this)" style="margin-top:12px;">Continue to Workspace ID</button>
                 <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="#" onclick="toggleAuth('login')">Sign in</a></p>
             </div>
 
@@ -224,15 +240,15 @@ HTML_TEMPLATE = """
                 <input type="text" id="suCompanyId" placeholder="Workspace Company ID">
                 <div style="display:flex; gap:10px;">
                     <button onclick="backToSignupCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
-                    <button onclick="registerAccount()">Complete Sign Up</button>
+                    <button onclick="registerAccount(this)">Complete Sign Up</button>
                 </div>
             </div>
         </div>
     </div>
 
     <div id="waitingContainer" class="hidden" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
-        <div class="card" style="width: 100%; max-width: 420px; margin: 0; text-align:center; padding: 44px 32px; animation: linearEntrance 0.4s var(--ease-linear);">
-            <div style="width:12px; height:12px; background:#fbbf24; border-radius:50%; margin:0 auto 20px auto; box-shadow: 0 0 16px #fbbf24; animation: pulseGlow 1.5s infinite;"></div>
+        <div class="card" style="width: 100%; max-width: 420px; margin: 0; text-align:center; padding: 44px 32px; animation: fadeInScale 0.5s var(--ease-out-expo);">
+            <div style="width:14px; height:14px; background:#fbbf24; border-radius:50%; margin:0 auto 20px auto; box-shadow: 0 0 20px #fbbf24; animation: pulseGlow 1.4s infinite;"></div>
             <h2 style="margin-bottom:12px;">Waiting for CEO Approval</h2>
             <p style="color:var(--subtext); font-size:0.9em; line-height:1.6; margin-bottom:32px;">Your account has been registered. The workspace CEO needs to review and assign your role/permissions before you can enter.</p>
             <button onclick="logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Sign Out</button>
@@ -242,7 +258,7 @@ HTML_TEMPLATE = """
     <div id="dashboardContainer" class="hidden" style="display:flex; width:100%; height:100vh;">
         <div class="sidebar">
             <div class="sidebar-brand">
-                <div style="width:8px; height:8px; background:var(--accent); border-radius:50%; box-shadow: 0 0 10px var(--accent);"></div>
+                <div style="width:8px; height:8px; background:var(--accent); border-radius:50%; box-shadow: 0 0 12px var(--accent); animation: pulseGlow 2s infinite;"></div>
                 <span id="brandCompanyName">Tasko Workspace</span>
             </div>
             
@@ -305,7 +321,7 @@ HTML_TEMPLATE = """
                         <option value="High">High Priority</option>
                     </select>
                     
-                    <button onclick="createTask()" style="margin-top:12px;">Assign Task to Team Member</button>
+                    <button onclick="createTask(this)" style="margin-top:12px;">Assign Task to Team Member</button>
                 </div>
             </div>
 
@@ -322,7 +338,7 @@ HTML_TEMPLATE = """
                         <option value="">Select Employee</option>
                     </select>
                     
-                    <button onclick="createDailyRoutine()" style="margin-top:12px;">Add Auto-Daily Routine</button>
+                    <button onclick="createDailyRoutine(this)" style="margin-top:12px;">Add Auto-Daily Routine</button>
 
                     <h4 style="margin-top:28px; font-size:0.95em; color:var(--subtext);">Active Daily Routines</h4>
                     <div id="configRoutinesList">No routines configured.</div>
@@ -377,7 +393,7 @@ HTML_TEMPLATE = """
                         <label style="font-size:0.85em; color:var(--subtext);">Workspace Company Name</label>
                         <div style="display:flex; gap:12px;">
                             <input type="text" id="settingsCompanyName" placeholder="MyCorp">
-                            <button onclick="updateCompanyName()" style="width:auto; margin:8px 0 18px 0; padding:0 20px;">Save</button>
+                            <button onclick="updateCompanyName(this)" style="width:auto; margin:8px 0 18px 0; padding:0 20px;">Save</button>
                         </div>
                     </div>
 
@@ -420,6 +436,17 @@ HTML_TEMPLATE = """
             }
         };
 
+        function setButtonLoading(btn, isLoading, originalText) {
+            if (isLoading) {
+                btn.disabled = true;
+                btn.dataset.origText = btn.innerHTML;
+                btn.innerHTML = `<span class="spinner"></span> Loading...`;
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = btn.dataset.origText || originalText;
+            }
+        }
+
         function showToast(message, type = 'success') {
             let container = document.getElementById('toastContainer');
             let toast = document.createElement('div');
@@ -427,8 +454,8 @@ HTML_TEMPLATE = """
             toast.innerHTML = `<span>${message}</span>`;
             container.appendChild(toast);
             setTimeout(() => {
-                toast.style.animation = 'toastOut 0.3s var(--ease-linear) forwards';
-                setTimeout(() => toast.remove(), 300);
+                toast.style.animation = 'toastOut 0.35s var(--ease-out-expo) forwards';
+                setTimeout(() => toast.remove(), 350);
             }, 3000);
         }
 
@@ -479,20 +506,28 @@ HTML_TEMPLATE = """
         function toggleCompanyInput() {
             let role = document.getElementById('suRole').value;
             let isCeo = role === 'CEO';
-            document.getElementById('suCompanyName').classList.toggle('hidden', !isCeo);
+            let compInput = document.getElementById('suCompanyName');
+            if (isCeo) {
+                compInput.classList.remove('hidden');
+                compInput.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
+            } else {
+                compInput.classList.add('hidden');
+            }
         }
 
-        async function socialLogin(provider) {
+        async function socialLogin(provider, btn) {
             let email = prompt(`Enter your ${provider} account email address:`);
             if(!email) return;
             let company_id = prompt("Enter your Workspace Company ID:");
             if(!company_id) return;
 
+            setButtonLoading(btn, true);
             let res = await fetch('/api/social-login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({email, provider, company_id})
             });
+            setButtonLoading(btn, false);
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
@@ -504,23 +539,31 @@ HTML_TEMPLATE = """
             }
         }
 
-        function nextLoginStep() {
+        function nextLoginStep(btn) {
             let email = document.getElementById('loginEmail').value.trim();
             let password = document.getElementById('loginPassword').value;
             if(!email || !password) {
                 showToast("Please enter both email and password.", "error");
                 return;
             }
-            document.getElementById('loginForm').classList.add('hidden');
-            document.getElementById('loginCompanyModal').classList.remove('hidden');
+            setButtonLoading(btn, true);
+            setTimeout(() => {
+                setButtonLoading(btn, false);
+                document.getElementById('loginForm').classList.add('hidden');
+                let modal = document.getElementById('loginCompanyModal');
+                modal.classList.remove('hidden');
+                modal.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
+            }, 300);
         }
 
         function backToLoginCredentials() {
             document.getElementById('loginCompanyModal').classList.add('hidden');
-            document.getElementById('loginForm').classList.remove('hidden');
+            let form = document.getElementById('loginForm');
+            form.classList.remove('hidden');
+            form.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
         }
 
-        function nextSignupStep() {
+        function nextSignupStep(btn) {
             let name = document.getElementById('suName').value.trim();
             let email = document.getElementById('suEmail').value.trim();
             let password = document.getElementById('suPassword').value;
@@ -536,31 +579,38 @@ HTML_TEMPLATE = """
                 return;
             }
 
-            document.getElementById('signupForm').classList.add('hidden');
-            let modal = document.getElementById('signupCompanyModal');
-            modal.classList.remove('hidden');
+            setButtonLoading(btn, true);
+            setTimeout(() => {
+                setButtonLoading(btn, false);
+                document.getElementById('signupForm').classList.add('hidden');
+                let modal = document.getElementById('signupCompanyModal');
+                modal.classList.remove('hidden');
+                modal.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
 
-            if(role === 'CEO') {
-                document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID (Generated)";
-                document.getElementById('signupCompanyModalSub').innerText = "A new workspace ID will be created for your company.";
-                document.getElementById('suCompanyId').value = Math.floor(1000000000 + Math.random() * 9000000000);
-                document.getElementById('suCompanyId').readOnly = true;
-                document.getElementById('suCompanyId').style.opacity = '0.7';
-            } else {
-                document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID";
-                document.getElementById('signupCompanyModalSub').innerText = "Enter the workspace ID provided by your company.";
-                document.getElementById('suCompanyId').value = '';
-                document.getElementById('suCompanyId').readOnly = false;
-                document.getElementById('suCompanyId').style.opacity = '1';
-            }
+                if(role === 'CEO') {
+                    document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID (Generated)";
+                    document.getElementById('signupCompanyModalSub').innerText = "A new workspace ID will be created for your company.";
+                    document.getElementById('suCompanyId').value = Math.floor(1000000000 + Math.random() * 9000000000);
+                    document.getElementById('suCompanyId').readOnly = true;
+                    document.getElementById('suCompanyId').style.opacity = '0.7';
+                } else {
+                    document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID";
+                    document.getElementById('signupCompanyModalSub').innerText = "Enter the workspace ID provided by your company.";
+                    document.getElementById('suCompanyId').value = '';
+                    document.getElementById('suCompanyId').readOnly = false;
+                    document.getElementById('suCompanyId').style.opacity = '1';
+                }
+            }, 300);
         }
 
         function backToSignupCredentials() {
             document.getElementById('signupCompanyModal').classList.add('hidden');
-            document.getElementById('signupForm').classList.remove('hidden');
+            let form = document.getElementById('signupForm');
+            form.classList.remove('hidden');
+            form.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
         }
 
-        async function registerAccount() {
+        async function registerAccount(btn) {
             let signupData = {
                 name: document.getElementById('suName').value.trim(),
                 email: document.getElementById('suEmail').value.trim(),
@@ -573,7 +623,9 @@ HTML_TEMPLATE = """
                 showToast("Workspace Company ID is required for employee sign up.", "error");
                 return;
             }
+            setButtonLoading(btn, true);
             let res = await fetch('/api/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(signupData)});
+            setButtonLoading(btn, false);
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
@@ -583,7 +635,7 @@ HTML_TEMPLATE = """
             } else { showToast(result.error, "error"); }
         }
 
-        async function loginFinal() {
+        async function loginFinal(btn) {
             let data = {
                 email: document.getElementById('loginEmail').value.trim(),
                 password: document.getElementById('loginPassword').value,
@@ -593,7 +645,9 @@ HTML_TEMPLATE = """
                 showToast("Please enter the Workspace ID.", "error");
                 return;
             }
+            setButtonLoading(btn, true);
             let res = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            setButtonLoading(btn, false);
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
@@ -649,7 +703,9 @@ HTML_TEMPLATE = """
 
             document.getElementById('authContainer').style.display = 'none';
             document.getElementById('waitingContainer').classList.add('hidden');
-            document.getElementById('dashboardContainer').classList.remove('hidden');
+            let dash = document.getElementById('dashboardContainer');
+            dash.classList.remove('hidden');
+            dash.style.animation = 'fadeInScale 0.4s var(--ease-out-expo)';
             
             document.getElementById('sidebarUserName').innerText = currentUser.name;
             document.getElementById('sidebarUserRole').innerText = currentUser.role;
@@ -684,10 +740,12 @@ HTML_TEMPLATE = """
             restartAutoRefreshInterval();
         }
 
-        async function updateCompanyName() {
+        async function updateCompanyName(btn) {
             let newName = document.getElementById('settingsCompanyName').value.trim();
             if(!newName) { showToast("Company name cannot be empty.", "error"); return; }
+            setButtonLoading(btn, true);
             let res = await fetch('/api/admin/update-company', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({company_id: currentUser.company_id, company_name: newName})});
+            setButtonLoading(btn, false);
             if(res.ok) {
                 currentUser.company_name = newName;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
@@ -705,7 +763,7 @@ HTML_TEMPLATE = """
                 return;
             }
             container.innerHTML = data.pending_users.map(u => `
-                <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:10px; border:1px solid var(--border-color);">
+                <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:12px; border:1px solid var(--border-color); animation: fadeInScale 0.3s var(--ease-out-expo);">
                     <div style="margin-bottom:8px;"><strong>${u.name}</strong> (${u.email})</div>
                     
                     <label style="font-size:0.8em; color:var(--subtext);">Select Stance / Type Custom Role:</label>
@@ -728,12 +786,12 @@ HTML_TEMPLATE = """
                         <label><input type="checkbox" id="perm_logs_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> View Activity Logs</label>
                     </div>
 
-                    <button onclick="approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
+                    <button onclick="approveUser('${u.email}', this)" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
                 </div>
             `).join('');
         }
 
-        async function approveUser(email) {
+        async function approveUser(email, btn) {
             let emailKey = email.replace(/[^a-zA-Z0-9]/g, '_');
             let stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
             let stance = stanceDropdown === 'Custom' ? document.getElementById(`customStance_${emailKey}`).value.trim() : stanceDropdown;
@@ -747,11 +805,13 @@ HTML_TEMPLATE = """
             if(document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push('assign_tasks');
             if(document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push('view_logs');
 
+            setButtonLoading(btn, true);
             await fetch('/api/admin/approve-user', {
                 method: 'POST', 
                 headers: {'Content-Type': 'application/json'}, 
                 body: JSON.stringify({ email, stance, permissions })
             });
+            setButtonLoading(btn, false);
             showToast("Employee approved successfully!");
             loadPendingUsers();
             loadEmployeesManagement();
@@ -767,7 +827,7 @@ HTML_TEMPLATE = """
                 return;
             }
             container.innerHTML = data.employees.map(e => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color);">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color); animation: fadeInScale 0.3s var(--ease-out-expo);">
                     <div>
                         <span>${e.name} (${e.email}) &bull; <b style="color:var(--accent);">${e.stance || e.role}</b></span>
                         <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${(e.permissions || []).join(', ') || 'None'}</div>
@@ -799,7 +859,7 @@ HTML_TEMPLATE = """
             document.getElementById('routineAssigneeSelect').innerHTML = opts;
         }
 
-        async function createTask() {
+        async function createTask(btn) {
             let data = {
                 title: document.getElementById('taskTitle').value.trim(),
                 assigned_to: document.getElementById('taskAssigneeSelect').value,
@@ -811,14 +871,16 @@ HTML_TEMPLATE = """
                 showToast("Please fill out task title and select an assignee.", "error");
                 return;
             }
+            setButtonLoading(btn, true);
             await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            setButtonLoading(btn, false);
             document.getElementById('taskTitle').value = '';
             document.getElementById('taskDeadline').value = '';
             showToast("Task assigned successfully!");
             loadDashboardData();
         }
 
-        async function createDailyRoutine() {
+        async function createDailyRoutine(btn) {
             let data = {
                 title: document.getElementById('routineTitle').value.trim(),
                 assigned_to: document.getElementById('routineAssigneeSelect').value,
@@ -828,7 +890,9 @@ HTML_TEMPLATE = """
                 showToast("Please fill out routine title and select an assignee.", "error");
                 return;
             }
+            setButtonLoading(btn, true);
             await fetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            setButtonLoading(btn, false);
             document.getElementById('routineTitle').value = '';
             showToast("Daily routine configured successfully!");
             loadDashboardData();
@@ -856,13 +920,13 @@ HTML_TEMPLATE = """
                             <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;" id="taskProofBox_${globalIdx}">
                                 <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
                                 <input type="file" id="proofFile_${globalIdx}" accept="image/*" style="margin-bottom:10px; padding:8px;">
-                                <button onclick="submitProof(${globalIdx})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
+                                <button onclick="submitProof(${globalIdx}, this)" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
                             </div>
                         `;
                     }
 
                     return `
-                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:10px; border:1px solid var(--border-color); transition: all 0.2s var(--ease-linear);">
+                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color); transition: all 0.3s var(--ease-out-expo); animation: fadeInScale 0.3s var(--ease-out-expo);">
                             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                                 <div>
                                     <strong style="font-size:1.1em; letter-spacing:-0.01em;">${t.title}</strong>
@@ -872,7 +936,7 @@ HTML_TEMPLATE = """
                                 </div>
                                 <div>${statusBadge}</div>
                             </div>
-                            ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:8px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${t.ai_comment}</div>` : ''}
+                            ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:10px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${t.ai_comment}</div>` : ''}
                             ${actionHtml}
                         </div>
                     `;
@@ -885,7 +949,7 @@ HTML_TEMPLATE = """
 
             if(configRoutinesContainer) {
                 configRoutinesContainer.innerHTML = userRoutines.length === 0 ? "<span style='color:var(--subtext);'>No daily routines configured.</span>" :
-                    userRoutines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color);"><b>${r.title}</b> &bull; Assigned to: ${r.assigned_to}</div>`).join('');
+                    userRoutines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color); animation: fadeInScale 0.2s var(--ease-out-expo);"><b>${r.title}</b> &bull; Assigned to: ${r.assigned_to}</div>`).join('');
             }
 
             let viewableRoutines = userRoutines.filter(r => currentUser.role === 'CEO' || r.assigned_to === currentUser.name);
@@ -901,13 +965,13 @@ HTML_TEMPLATE = """
                     if(currentUser.role !== 'CEO' && !isDoneToday) {
                         actionHtml = `
                             <div style="margin-top:12px;">
-                                <button onclick="markRoutineDone(${rIdx})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
+                                <button onclick="markRoutineDone(${rIdx}, this)" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
                             </div>
                         `;
                     }
 
                     return `
-                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:10px; border:1px solid var(--border-color);">
+                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color); animation: fadeInScale 0.3s var(--ease-out-expo);">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <div>
                                     <strong style="font-size:1.05em; letter-spacing:-0.01em;">${r.title}</strong>
@@ -927,7 +991,7 @@ HTML_TEMPLATE = """
                 workspaceHistory.map(h => `<tr><td style="color:var(--subtext); width:150px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
         }
 
-        async function submitProof(taskIndex) {
+        async function submitProof(taskIndex, btn) {
             let fileInput = document.getElementById(`proofFile_${taskIndex}`);
             if(!fileInput || fileInput.files.length === 0) { 
                 showToast("Please select an image file.", "error"); 
@@ -939,12 +1003,14 @@ HTML_TEMPLATE = """
             reader.onload = async function () {
                 let base64Image = reader.result.split(',')[1];
                 showToast("Submitting proof to Gemini AI...", "info");
+                setButtonLoading(btn, true);
                 try {
                     let res = await fetch('/api/tasks/verify-proof', {
                         method: 'POST', 
                         headers: {'Content-Type': 'application/json'}, 
                         body: JSON.stringify({index: taskIndex, image: base64Image, mime_type: file.type})
                     });
+                    setButtonLoading(btn, false);
                     let result = await res.json();
                     if(res.ok) { 
                         showToast("AI Verification Complete: " + result.status); 
@@ -953,6 +1019,7 @@ HTML_TEMPLATE = """
                         showToast("Error: " + (result.error || "Verification failed"), "error");
                     }
                 } catch(err) {
+                    setButtonLoading(btn, false);
                     showToast("Network error while submitting proof.", "error");
                 }
             };
@@ -962,8 +1029,10 @@ HTML_TEMPLATE = """
             reader.readAsDataURL(file);
         }
 
-        async function markRoutineDone(routineIndex) {
+        async function markRoutineDone(routineIndex, btn) {
+            setButtonLoading(btn, true);
             await fetch('/api/routines/complete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index: routineIndex})});
+            setButtonLoading(btn, false);
             showToast("Daily routine marked completed!");
             loadDashboardData();
         }
@@ -1113,7 +1182,6 @@ def social_login():
 
     user = USERS_DB.get(email) or PENDING_USERS_DB.get(email)
     if not user:
-        # Auto-register as Employee if they don't exist yet via social login
         valid_workspace_exists = False
         workspace_matched_name = "Tasko Workspace"
         for u in USERS_DB.values():
