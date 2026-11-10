@@ -119,6 +119,11 @@ HTML_TEMPLATE = """
         .social-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 10px; box-shadow: none; font-weight: 500; }
         .social-btn:hover { background: var(--card-hover); border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
 
+        /* Full screen overlay loader */
+        #globalLoader { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(6px); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; opacity: 0; pointer-events: none; transition: opacity 0.3s var(--ease-out-expo); }
+        #globalLoader.active { opacity: 1; pointer-events: auto; }
+        .spinner-ring { width: 44px; height: 44px; border: 3px solid rgba(94, 106, 210, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: spinLoader 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite; box-shadow: 0 0 20px rgba(94, 106, 210, 0.4); }
+
         .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spinLoader 0.6s linear infinite; display: inline-block; }
 
         .hidden { display: none !important; }
@@ -161,6 +166,10 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div id="toastContainer"></div>
+    <div id="globalLoader">
+        <div class="spinner-ring"></div>
+        <div style="font-size:0.9em; font-weight:500; color:var(--text-color); letter-spacing:-0.01em;" id="loaderText">Authenticating with Workspace...</div>
+    </div>
 
     <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
         <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: fadeInScale 0.5s var(--ease-out-expo);">
@@ -447,15 +456,13 @@ HTML_TEMPLATE = """
             }
         };
 
-        function setButtonLoading(btn, isLoading, originalText) {
-            if (isLoading) {
-                btn.disabled = true;
-                btn.dataset.origText = btn.innerHTML;
-                btn.innerHTML = `<span class="spinner"></span> Loading...`;
-            } else {
-                btn.disabled = false;
-                btn.innerHTML = btn.dataset.origText || originalText;
-            }
+        function showLoader(text = "Authenticating with Workspace...") {
+            document.getElementById('loaderText').innerText = text;
+            document.getElementById('globalLoader').classList.add('active');
+        }
+
+        function hideLoader() {
+            document.getElementById('globalLoader').classList.remove('active');
         }
 
         function showToast(message, type = 'success') {
@@ -551,13 +558,13 @@ HTML_TEMPLATE = """
                 return;
             }
 
-            setButtonLoading(btn, true);
+            showLoader(`Signing in with ${activeSocialProvider}...`);
             let res = await fetch('/api/social-login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({email, provider: activeSocialProvider, company_id})
             });
-            setButtonLoading(btn, false);
+            hideLoader();
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
@@ -576,14 +583,14 @@ HTML_TEMPLATE = """
                 showToast("Please enter both email and password.", "error");
                 return;
             }
-            setButtonLoading(btn, true);
+            showLoader("Verifying credentials...");
             setTimeout(() => {
-                setButtonLoading(btn, false);
+                hideLoader();
                 document.getElementById('loginForm').classList.add('hidden');
                 let modal = document.getElementById('loginCompanyModal');
                 modal.classList.remove('hidden');
                 modal.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
-            }, 300);
+            }, 400);
         }
 
         function backToLoginCredentials() {
@@ -609,9 +616,9 @@ HTML_TEMPLATE = """
                 return;
             }
 
-            setButtonLoading(btn, true);
+            showLoader("Preparing workspace profile...");
             setTimeout(() => {
-                setButtonLoading(btn, false);
+                hideLoader();
                 document.getElementById('signupForm').classList.add('hidden');
                 let modal = document.getElementById('signupCompanyModal');
                 modal.classList.remove('hidden');
@@ -630,7 +637,7 @@ HTML_TEMPLATE = """
                     document.getElementById('suCompanyId').readOnly = false;
                     document.getElementById('suCompanyId').style.opacity = '1';
                 }
-            }, 300);
+            }, 400);
         }
 
         function backToSignupCredentials() {
@@ -653,9 +660,9 @@ HTML_TEMPLATE = """
                 showToast("Workspace Company ID is required for employee sign up.", "error");
                 return;
             }
-            setButtonLoading(btn, true);
+            showLoader("Creating your account & workspace...");
             let res = await fetch('/api/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(signupData)});
-            setButtonLoading(btn, false);
+            hideLoader();
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
@@ -675,9 +682,9 @@ HTML_TEMPLATE = """
                 showToast("Please enter the Workspace ID.", "error");
                 return;
             }
-            setButtonLoading(btn, true);
+            showLoader("Signing into workspace...");
             let res = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
-            setButtonLoading(btn, false);
+            hideLoader();
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
@@ -773,9 +780,9 @@ HTML_TEMPLATE = """
         async function updateCompanyName(btn) {
             let newName = document.getElementById('settingsCompanyName').value.trim();
             if(!newName) { showToast("Company name cannot be empty.", "error"); return; }
-            setButtonLoading(btn, true);
+            showLoader("Updating company name...");
             let res = await fetch('/api/admin/update-company', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({company_id: currentUser.company_id, company_name: newName})});
-            setButtonLoading(btn, false);
+            hideLoader();
             if(res.ok) {
                 currentUser.company_name = newName;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
@@ -835,13 +842,13 @@ HTML_TEMPLATE = """
             if(document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push('assign_tasks');
             if(document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push('view_logs');
 
-            setButtonLoading(btn, true);
+            showLoader("Approving employee...");
             await fetch('/api/admin/approve-user', {
                 method: 'POST', 
                 headers: {'Content-Type': 'application/json'}, 
                 body: JSON.stringify({ email, stance, permissions })
             });
-            setButtonLoading(btn, false);
+            hideLoader();
             showToast("Employee approved successfully!");
             loadPendingUsers();
             loadEmployeesManagement();
@@ -869,7 +876,9 @@ HTML_TEMPLATE = """
 
         async function kickEmployee(email) {
             if(!confirm("Are you sure you want to kick this employee?")) return;
+            showLoader("Removing employee...");
             let res = await fetch('/api/admin/kick-employee', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, company_id: currentUser.company_id})});
+            hideLoader();
             if(res.ok) {
                 showToast("Employee removed from workspace.", "info");
                 loadEmployeesManagement();
@@ -901,9 +910,9 @@ HTML_TEMPLATE = """
                 showToast("Please fill out task title and select an assignee.", "error");
                 return;
             }
-            setButtonLoading(btn, true);
+            showLoader("Assigning task...");
             await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
-            setButtonLoading(btn, false);
+            hideLoader();
             document.getElementById('taskTitle').value = '';
             document.getElementById('taskDeadline').value = '';
             showToast("Task assigned successfully!");
@@ -920,9 +929,9 @@ HTML_TEMPLATE = """
                 showToast("Please fill out routine title and select an assignee.", "error");
                 return;
             }
-            setButtonLoading(btn, true);
+            showLoader("Configuring routine...");
             await fetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
-            setButtonLoading(btn, false);
+            hideLoader();
             document.getElementById('routineTitle').value = '';
             showToast("Daily routine configured successfully!");
             loadDashboardData();
@@ -1032,15 +1041,14 @@ HTML_TEMPLATE = """
             
             reader.onload = async function () {
                 let base64Image = reader.result.split(',')[1];
-                showToast("Submitting proof to Gemini AI...", "info");
-                setButtonLoading(btn, true);
+                showLoader("Analyzing proof with Gemini AI...");
                 try {
                     let res = await fetch('/api/tasks/verify-proof', {
                         method: 'POST', 
                         headers: {'Content-Type': 'application/json'}, 
                         body: JSON.stringify({index: taskIndex, image: base64Image, mime_type: file.type})
                     });
-                    setButtonLoading(btn, false);
+                    hideLoader();
                     let result = await res.json();
                     if(res.ok) { 
                         showToast("AI Verification Complete: " + result.status); 
@@ -1049,7 +1057,7 @@ HTML_TEMPLATE = """
                         showToast("Error: " + (result.error || "Verification failed"), "error");
                     }
                 } catch(err) {
-                    setButtonLoading(btn, false);
+                    hideLoader();
                     showToast("Network error while submitting proof.", "error");
                 }
             };
@@ -1060,9 +1068,9 @@ HTML_TEMPLATE = """
         }
 
         async function markRoutineDone(routineIndex, btn) {
-            setButtonLoading(btn, true);
+            showLoader("Updating routine status...");
             await fetch('/api/routines/complete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index: routineIndex})});
-            setButtonLoading(btn, false);
+            hideLoader();
             showToast("Daily routine marked completed!");
             loadDashboardData();
         }
