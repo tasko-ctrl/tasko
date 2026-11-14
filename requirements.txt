@@ -1,6 +1,8 @@
 flask
 google-genai
-gunicorn
 google-api-core
 flask-cors
+gunicorn
+requests
+PyJWT
 pillow
