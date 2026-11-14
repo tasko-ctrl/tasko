@@ -453,6 +453,7 @@ HTML_TEMPLATE = """
         let approvalCheckInterval = null;
         let pendingSocialEmail = '';
         let pendingSocialProvider = '';
+        let selectedProofFiles = {};
 
         window.onload = () => {
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
@@ -492,6 +493,13 @@ HTML_TEMPLATE = """
                 toast.style.animation = 'toastOut 0.35s var(--ease-out-expo) forwards';
                 setTimeout(() => toast.remove(), 350);
             }, 3000);
+        }
+
+        function handleFileSelect(taskIndex, input) {
+            if (input.files && input.files[0]) {
+                selectedProofFiles[taskIndex] = input.files[0];
+                showToast("Image selected successfully!", "info");
+            }
         }
 
         function updateRefreshRateSetting() {
@@ -907,7 +915,7 @@ HTML_TEMPLATE = """
             container.innerHTML = data.employees.map(e => `
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color); animation: fadeInScale 0.3s var(--ease-out-expo);">
                     <div>
-                        <span>${e.name} (${e.email}) &bull; <b style="color:var(--accent);">${e.stance || e.role}</b></span>
+                        <span>${e.name} (${e.email}) • <b style="color:var(--accent);">${e.stance || e.role}</b></span>
                         <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${(e.permissions || []).join(', ') || 'None'}</div>
                     </div>
                     ${(currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees'))) ? `<button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
@@ -999,7 +1007,7 @@ HTML_TEMPLATE = """
                         actionHtml = `
                             <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;" id="taskProofBox_${globalIdx}">
                                 <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
-                                <input type="file" id="proofFile_${globalIdx}" accept="image/*" style="margin-bottom:10px; padding:8px;">
+                                <input type="file" id="proofFile_${globalIdx}" accept="image/*" style="margin-bottom:10px; padding:8px;" onchange="handleFileSelect(${globalIdx}, this)">
                                 <button onclick="submitProof(${globalIdx}, this)" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
                             </div>
                         `;
@@ -1011,7 +1019,7 @@ HTML_TEMPLATE = """
                                 <div>
                                     <strong style="font-size:1.1em; letter-spacing:-0.01em;">${t.title}</strong>
                                     <div style="font-size:0.85em; color:var(--subtext); margin-top:6px;">
-                                        Assigned to: ${t.assigned_to} &bull; Priority: ${t.priority} &bull; Deadline: ${t.deadline || 'None'}
+                                        Assigned to: ${t.assigned_to} • Priority: ${t.priority} • Deadline: ${t.deadline || 'None'}
                                     </div>
                                 </div>
                                 <div>${statusBadge}</div>
@@ -1029,7 +1037,7 @@ HTML_TEMPLATE = """
 
             if(configRoutinesContainer) {
                 configRoutinesContainer.innerHTML = userRoutines.length === 0 ? "<span style='color:var(--subtext);'>No daily routines configured.</span>" :
-                    userRoutines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color); animation: fadeInScale 0.2s var(--ease-out-expo);"><b>${r.title}</b> &bull; Assigned to: ${r.assigned_to}</div>`).join('');
+                    userRoutines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color); animation: fadeInScale 0.2s var(--ease-out-expo);"><b>${r.title}</b> • Assigned to: ${r.assigned_to}</div>`).join('');
             }
 
             let viewableRoutines = userRoutines.filter(r => currentUser.role === 'CEO' || r.assigned_to === currentUser.name);
@@ -1055,7 +1063,7 @@ HTML_TEMPLATE = """
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <div>
                                     <strong style="font-size:1.05em; letter-spacing:-0.01em;">${r.title}</strong>
-                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${r.assigned_to} &bull; Resets daily</div>
+                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${r.assigned_to} • Resets daily</div>
                                 </div>
                                 <div>${statusBadge}</div>
                             </div>
@@ -1072,14 +1080,20 @@ HTML_TEMPLATE = """
         }
 
         async function submitProof(taskIndex, btn) {
-            let fileInput = document.getElementById(`proofFile_${taskIndex}`);
-            if(!fileInput || fileInput.files.length === 0) { 
-                showToast("Please select an image file.", "error"); 
-                return; 
+            let file = selectedProofFiles[taskIndex];
+            if (!file) {
+                let fileInput = document.getElementById(`proofFile_${taskIndex}`);
+                if (fileInput && fileInput.files && fileInput.files[0]) {
+                    file = fileInput.files[0];
+                }
             }
-            let file = fileInput.files[0];
+
+            if (!file) {
+                showToast("Please select an image file first.", "error");
+                return;
+            }
+
             let reader = new FileReader();
-            
             reader.onload = async function () {
                 let base64Image = reader.result.split(',')[1];
                 showLoader("Analyzing proof with Gemini AI...");
@@ -1091,7 +1105,7 @@ HTML_TEMPLATE = """
                     });
                     hideLoader();
                     let result = await res.json();
-                    if(res.ok) { 
+                    if (res.ok) { 
                         showToast("AI Verification Complete: " + result.status); 
                         loadDashboardData(); 
                     } else {
