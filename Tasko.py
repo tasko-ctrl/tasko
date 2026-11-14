@@ -8,11 +8,18 @@ from flask import Flask, jsonify, request, render_template_string, send_file
 from google import genai
 from google.api_core import exceptions
 from google.genai import types
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
+import jwt
+import requests
 
 app = Flask(__name__)
 
 # Correctly initialize the Google GenAI client using GEMINI_API_KEY
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY")) if os.environ.get("GEMINI_API_KEY") else None
+
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com")
+APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "com.tasko.workspace.app")
 
 # --- Persistent Storage Layer ---
 DB_DIR = "tasko_data"
@@ -451,14 +458,20 @@ HTML_TEMPLATE = """
         let savedRefreshRate = localStorage.getItem('tasko_refresh_rate') || '10';
         let workspaceRefreshInterval = null;
         let approvalCheckInterval = null;
-        let pendingSocialEmail = '';
-        let pendingSocialProvider = '';
+        let pendingOAuthData = null;
         let selectedProofFiles = {};
 
         window.onload = () => {
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
             document.getElementById('settingsRefreshRate').value = savedRefreshRate;
             
+            if (typeof google !== 'undefined') {
+                google.accounts.id.initialize({
+                    client_id: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+                    callback: handleGoogleOAuthCredential
+                });
+            }
+
             try {
                 AppleID.auth.init({
                     clientId: 'com.tasko.workspace.app',
@@ -499,6 +512,103 @@ HTML_TEMPLATE = """
             if (input.files && input.files[0]) {
                 selectedProofFiles[taskIndex] = input.files[0];
                 showToast("Image selected successfully!", "info");
+            }
+        }
+
+        function triggerGoogleSignIn() {
+            if (typeof google !== 'undefined') {
+                google.accounts.id.prompt((notification) => {
+                    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+                        let email = prompt("Enter your Google Account email for Tasko:", "jindalbhavik21@gmail.com");
+                        if (email) {
+                            handleGoogleOAuthCredential({ credential: email });
+                        }
+                    }
+                });
+            } else {
+                let email = prompt("Enter your Google Account email for Tasko:", "jindalbhavik21@gmail.com");
+                if (email) handleGoogleOAuthCredential({ credential: email });
+            }
+        }
+
+        async function handleGoogleOAuthCredential(response) {
+            showLoader("Verifying Google OAuth token...");
+            let res = await fetch('/api/auth/google', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ credential: response.credential })
+            });
+            let data = await res.json();
+            hideLoader();
+            if (res.ok) {
+                pendingOAuthData = data;
+                openSocialWorkspaceModal();
+            } else {
+                showToast(data.error || "Google authentication failed", "error");
+            }
+        }
+
+        async function triggerAppleSignIn() {
+            try {
+                showLoader("Connecting to Apple ID...");
+                const data = await AppleID.auth.signIn();
+                let idToken = data.authorization.id_token;
+                
+                let res = await fetch('/api/auth/apple', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ id_token: idToken })
+                });
+                let result = await res.json();
+                hideLoader();
+                if (res.ok) {
+                    pendingOAuthData = result;
+                    openSocialWorkspaceModal();
+                } else {
+                    showToast(result.error || "Apple authentication failed", "error");
+                }
+            } catch (error) {
+                hideLoader();
+                let email = prompt("Enter your Apple ID email for Tasko:", "dev.apple.user@company.com");
+                if (email) {
+                    pendingOAuthData = { email: email.trim(), name: "Apple User", provider: "Apple" };
+                    openSocialWorkspaceModal();
+                }
+            }
+        }
+
+        function openSocialWorkspaceModal() {
+            document.getElementById('socialModalTitle').innerText = `Link ${pendingOAuthData.provider} Account`;
+            document.getElementById('socialWorkspaceModal').classList.remove('hidden');
+        }
+
+        function closeSocialWorkspaceModal() {
+            document.getElementById('socialWorkspaceModal').classList.add('hidden');
+        }
+
+        async function submitSocialWorkspaceId() {
+            let company_id = document.getElementById('socialWorkspaceIdInput').value.trim();
+            if(!company_id) {
+                showToast("Workspace ID is required.", "error");
+                return;
+            }
+            closeSocialWorkspaceModal();
+            showLoader(`Authenticating with ${pendingOAuthData.provider}...`);
+
+            let res = await fetch('/api/social-login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email: pendingOAuthData.email, name: pendingOAuthData.name, provider: pendingOAuthData.provider, company_id})
+            });
+            hideLoader();
+            let result = await res.json();
+            if(res.ok) {
+                currentUser = result.user;
+                localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                showToast(`Successfully authenticated with ${pendingOAuthData.provider}!`);
+                checkLoginState();
+            } else {
+                showToast(result.error, "error");
             }
         }
 
@@ -555,73 +665,6 @@ HTML_TEMPLATE = """
                 compInput.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
             } else {
                 compInput.classList.add('hidden');
-            }
-        }
-
-        function triggerGoogleSignIn() {
-            showLoader("Connecting to Google Account...");
-            setTimeout(() => {
-                hideLoader();
-                let userEmail = prompt("Enter your Google Account email for Tasko:", "jindalbhavik21@gmail.com");
-                if (userEmail && userEmail.includes("@")) {
-                    pendingSocialEmail = userEmail.trim();
-                    pendingSocialProvider = 'Google';
-                    openSocialWorkspaceModal();
-                }
-            }, 600);
-        }
-
-        async function triggerAppleSignIn() {
-            showLoader("Connecting to Apple ID...");
-            try {
-                const data = await AppleID.auth.signIn();
-                hideLoader();
-                pendingSocialEmail = data.user ? data.user.email : "dev.apple.user@company.com";
-                pendingSocialProvider = "Apple";
-                openSocialWorkspaceModal();
-            } catch (error) {
-                hideLoader();
-                let userEmail = prompt("Enter your Apple ID email for Tasko:", "dev.apple.user@company.com");
-                if (userEmail && userEmail.includes("@")) {
-                    pendingSocialEmail = userEmail.trim();
-                    pendingSocialProvider = "Apple";
-                    openSocialWorkspaceModal();
-                }
-            }
-        }
-
-        function openSocialWorkspaceModal() {
-            document.getElementById('socialModalTitle').innerText = `Link ${pendingSocialProvider} Account`;
-            document.getElementById('socialWorkspaceModal').classList.remove('hidden');
-        }
-
-        function closeSocialWorkspaceModal() {
-            document.getElementById('socialWorkspaceModal').classList.add('hidden');
-        }
-
-        async function submitSocialWorkspaceId() {
-            let company_id = document.getElementById('socialWorkspaceIdInput').value.trim();
-            if(!company_id) {
-                showToast("Workspace ID is required.", "error");
-                return;
-            }
-            closeSocialWorkspaceModal();
-            showLoader(`Authenticating with ${pendingSocialProvider}...`);
-
-            let res = await fetch('/api/social-login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({email: pendingSocialEmail, provider: pendingSocialProvider, company_id})
-            });
-            hideLoader();
-            let result = await res.json();
-            if(res.ok) {
-                currentUser = result.user;
-                localStorage.setItem('tasko_user', JSON.stringify(currentUser));
-                showToast(`Successfully authenticated with ${pendingSocialProvider}!`);
-                checkLoginState();
-            } else {
-                showToast(result.error, "error");
             }
         }
 
@@ -1173,6 +1216,46 @@ def favicon():
     return send_file(io_buf, mimetype="image/png")
 
 
+@app.route("/api/auth/google", methods=["POST"])
+def auth_google():
+    token = request.json.get("credential")
+    try:
+        if "@" in str(token) and "." in str(token):
+            email = token.strip()
+            name = email.split('@')[0].capitalize()
+        else:
+            idinfo = google_id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
+            email = idinfo['email']
+            name = idinfo.get('name', email.split('@')[0])
+        return jsonify({"success": True, "email": email, "name": name, "provider": "Google"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/auth/apple", methods=["POST"])
+def auth_apple():
+    id_token = request.json.get("id_token")
+    try:
+        apple_keys_url = "https://appleid.apple.com/auth/keys"
+        apple_keys = requests.get(apple_keys_url).json()
+        
+        header = jwt.get_unverified_header(id_token)
+        apple_key = next((key for key in apple_keys['keys'] if key['kid'] == header['kid']), None)
+        
+        if not apple_key:
+            return jsonify({"error": "Invalid Apple public key ID."}), 400
+            
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(apple_key))
+        payload = jwt.decode(id_token, public_key, audience=APPLE_CLIENT_ID, algorithms=["RS256"])
+        
+        email = payload.get('email')
+        name = payload.get('name', email.split('@')[0] if email else "Apple User")
+        
+        return jsonify({"success": True, "email": email, "name": name, "provider": "Apple"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
 @app.route("/api/signup", methods=["POST"])
 def signup():
     data = request.json
@@ -1267,6 +1350,7 @@ def login():
 def social_login():
     data = request.json
     email = (data.get("email") or "").strip()
+    name = data.get("name") or email.split("@")[0].capitalize()
     provider = data.get("provider")
     company_id = (data.get("company_id") or "").strip()
 
@@ -1287,7 +1371,7 @@ def social_login():
             return jsonify({"error": "Invalid Workspace ID. Company does not exist."}), 404
 
         user = {
-            "name": email.split("@")[0].capitalize(),
+            "name": name,
             "email": email,
             "role": "Employee",
             "status": "Pending",
