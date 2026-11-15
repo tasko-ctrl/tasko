@@ -4,7 +4,7 @@ import base64
 import random
 import io
 import json
-from flask import Flask, jsonify, request, render_template_string, send_file
+from flask import Flask, jsonify, request, render_template, render_template_string, send_file
 from google import genai
 from google.api_core import exceptions
 from google.genai import types
@@ -1197,7 +1197,12 @@ HTML_TEMPLATE = """
 """
 
 
+# --- Updated Routes: Landing Page at Root, App at /app ---
 @app.route("/")
+def landing_page():
+    return render_template("landing.html")
+
+@app.route("/app")
 def index():
     return render_template_string(HTML_TEMPLATE)
 
