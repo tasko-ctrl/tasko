@@ -4,9 +4,11 @@ import base64
 import random
 import io
 import json
+import sqlite3
+from functools import wraps
 from flask import Flask, jsonify, request, render_template, render_template_string, send_file
+from werkzeug.security import generate_password_hash, check_password_hash
 from google import genai
-from google.api_core import exceptions
 from google.genai import types
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
@@ -15,38 +17,131 @@ import requests
 
 app = Flask(__name__)
 
-# Correctly initialize the Google GenAI client using GEMINI_API_KEY
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY")) if os.environ.get("GEMINI_API_KEY") else None
-
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com")
+# --- Environment & Security Configuration ---
+SECRET_KEY = os.environ.get("SECRET_KEY", "change-this-in-railway-variables-super-secret")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "com.tasko.workspace.app")
 
-# --- Persistent Storage Layer ---
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+# --- SQLite Persistent Storage Layer (Concurrency-Safe) ---
 DB_DIR = "tasko_data"
 os.makedirs(DB_DIR, exist_ok=True)
+DB_PATH = os.path.join(DB_DIR, "tasko.db")
 
-def load_db(filename, default):
-    path = os.path.join(DB_DIR, filename)
-    if os.path.exists(path):
+def get_db():
+    conn = sqlite3.connect(DB_PATH, timeout=15)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    return conn
+
+def init_db():
+    with get_db() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                email TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                password_hash TEXT,
+                role TEXT NOT NULL,
+                status TEXT NOT NULL,
+                stance TEXT DEFAULT '',
+                permissions TEXT DEFAULT '[]',
+                company_id TEXT NOT NULL,
+                company_name TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                assigned_to TEXT NOT NULL,
+                deadline TEXT,
+                priority TEXT DEFAULT 'Medium',
+                status TEXT DEFAULT 'Pending',
+                ai_comment TEXT DEFAULT '',
+                company_id TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS routines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                assigned_to TEXT NOT NULL,
+                company_id TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS daily_logs (
+                log_date TEXT NOT NULL,
+                routine_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                PRIMARY KEY (log_date, routine_id)
+            );
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                time TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_id TEXT NOT NULL,
+                sender TEXT NOT NULL,
+                text TEXT NOT NULL,
+                time TEXT NOT NULL
+            );
+        """)
+
+init_db()
+
+def log_history(conn, company_id, action):
+    conn.execute(
+        "INSERT INTO history (company_id, action, time) VALUES (?, ?, ?)",
+        (str(company_id), action, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    )
+
+def serialize_user(row):
+    return {
+        "name": row["name"],
+        "email": row["email"],
+        "role": row["role"],
+        "status": row["status"],
+        "stance": row["stance"],
+        "permissions": json.loads(row["permissions"] or "[]"),
+        "company_id": row["company_id"],
+        "company_name": row["company_name"]
+    }
+
+# --- JWT Token & Auth Middleware ---
+def create_token(user_dict):
+    payload = {
+        "email": user_dict["email"],
+        "company_id": str(user_dict["company_id"]),
+        "role": user_dict["role"],
+        "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=7)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+def require_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Missing or invalid authorization token."}), 401
+        token = auth_header.split(" ", 1)[1].strip()
         try:
-            with open(path, "r") as f:
-                return json.load(f)
-        except Exception:
-            return default
-    return default
+            payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Session expired. Please sign in again."}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid session token."}), 401
 
-def save_db(filename, data):
-    path = os.path.join(DB_DIR, filename)
-    with open(path, "w") as f:
-        json.dump(data, f)
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM users WHERE email = ?", (payload["email"],)).fetchone()
+            if not row:
+                return jsonify({"error": "User account no longer exists."}), 401
+            request.current_user = serialize_user(row)
+        return f(*args, **kwargs)
+    return decorated
 
-USERS_DB = load_db("users.json", {})
-PENDING_USERS_DB = load_db("pending_users.json", {})
-TASKS_DB = load_db("tasks.json", [])
-DAILY_ROUTINES_DB = load_db("routines.json", [])
-DAILY_LOGS_DB = load_db("daily_logs.json", {})
-HISTORY_DB = load_db("history.json", [])
-MESSAGES_DB = load_db("messages.json", [])
+def has_permission(user, perm):
+    return user["role"] == "CEO" or perm in user.get("permissions", [])
+
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -54,7 +149,6 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <title>Tasko - Workspace Manager</title>
-    <!-- Favicon and Touch Icon Links -->
     <link rel="icon" type="image/png" href="/favicon.ico">
     <link rel="apple-touch-icon" href="/favicon.ico">
     
@@ -134,8 +228,6 @@ HTML_TEMPLATE = """
         #globalLoader { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(6px); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; opacity: 0; pointer-events: none; transition: opacity 0.3s var(--ease-out-expo); }
         #globalLoader.active { opacity: 1; pointer-events: auto; }
         .spinner-ring { width: 44px; height: 44px; border: 3px solid rgba(94, 106, 210, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: spinLoader 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite; box-shadow: 0 0 20px rgba(94, 106, 210, 0.4); }
-
-        .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spinLoader 0.6s linear infinite; display: inline-block; }
 
         .hidden { display: none !important; }
         table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.9em; }
@@ -222,7 +314,7 @@ HTML_TEMPLATE = """
 
                 <input type="email" id="loginEmail" placeholder="name@company.com">
                 <input type="password" id="loginPassword" placeholder="••••••••••••">
-                <button onclick="nextLoginStep(this)">Continue to Workspace ID</button>
+                <button onclick="nextLoginStep()">Continue to Workspace ID</button>
                 <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Don't have an account? <a href="#" onclick="toggleAuth('signup')">Sign up</a></p>
             </div>
 
@@ -232,7 +324,7 @@ HTML_TEMPLATE = """
                 <input type="text" id="loginCompanyId" placeholder="Workspace Company ID">
                 <div style="display:flex; gap:10px;">
                     <button onclick="backToLoginCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
-                    <button onclick="loginFinal(this)">Sign In</button>
+                    <button onclick="loginFinal()">Sign In</button>
                 </div>
             </div>
 
@@ -262,7 +354,7 @@ HTML_TEMPLATE = """
                     <option value="CEO">CEO (Create Workspace)</option>
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
-                <button onclick="nextSignupStep(this)" style="margin-top:12px;">Continue to Workspace ID</button>
+                <button onclick="nextSignupStep()" style="margin-top:12px;">Continue to Workspace ID</button>
                 <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="#" onclick="toggleAuth('login')">Sign in</a></p>
             </div>
 
@@ -272,7 +364,7 @@ HTML_TEMPLATE = """
                 <input type="text" id="suCompanyId" placeholder="Workspace Company ID">
                 <div style="display:flex; gap:10px;">
                     <button onclick="backToSignupCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
-                    <button onclick="registerAccount(this)">Complete Sign Up</button>
+                    <button onclick="registerAccount()">Complete Sign Up</button>
                 </div>
             </div>
         </div>
@@ -353,7 +445,7 @@ HTML_TEMPLATE = """
                         <option value="High">High Priority</option>
                     </select>
                     
-                    <button onclick="createTask(this)" style="margin-top:12px;">Assign Task to Team Member</button>
+                    <button onclick="createTask()" style="margin-top:12px;">Assign Task to Team Member</button>
                 </div>
             </div>
 
@@ -370,7 +462,7 @@ HTML_TEMPLATE = """
                         <option value="">Select Employee</option>
                     </select>
                     
-                    <button onclick="createDailyRoutine(this)" style="margin-top:12px;">Add Auto-Daily Routine</button>
+                    <button onclick="createDailyRoutine()" style="margin-top:12px;">Add Auto-Daily Routine</button>
 
                     <h4 style="margin-top:28px; font-size:0.95em; color:var(--subtext);">Active Daily Routines</h4>
                     <div id="configRoutinesList">No routines configured.</div>
@@ -425,7 +517,7 @@ HTML_TEMPLATE = """
                         <label style="font-size:0.85em; color:var(--subtext);">Workspace Company Name</label>
                         <div style="display:flex; gap:12px;">
                             <input type="text" id="settingsCompanyName" placeholder="MyCorp">
-                            <button onclick="updateCompanyName(this)" style="width:auto; margin:8px 0 18px 0; padding:0 20px;">Save</button>
+                            <button onclick="updateCompanyName()" style="width:auto; margin:8px 0 18px 0; padding:0 20px;">Save</button>
                         </div>
                     </div>
 
@@ -453,7 +545,11 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        const GOOGLE_CLIENT_ID = {{ google_client_id | tojson }};
+        const APPLE_CLIENT_ID = {{ apple_client_id | tojson }};
+
         let currentUser = JSON.parse(localStorage.getItem('tasko_user')) || null;
+        let authToken = localStorage.getItem('tasko_token') || null;
         let currentTheme = localStorage.getItem('tasko_theme') || 'dark';
         let savedRefreshRate = localStorage.getItem('tasko_refresh_rate') || '10';
         let workspaceRefreshInterval = null;
@@ -461,29 +557,46 @@ HTML_TEMPLATE = """
         let pendingOAuthData = null;
         let selectedProofFiles = {};
 
+        // Authenticated fetch wrapper
+        async function apiFetch(url, options = {}) {
+            options.headers = options.headers || {};
+            if (authToken) {
+                options.headers['Authorization'] = `Bearer ${authToken}`;
+            }
+            const res = await fetch(url, options);
+            if (res.status === 401 && authToken) {
+                logout();
+            }
+            return res;
+        }
+
         window.onload = () => {
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
             document.getElementById('settingsRefreshRate').value = savedRefreshRate;
             
-            if (typeof google !== 'undefined') {
+            if (typeof google !== 'undefined' && GOOGLE_CLIENT_ID) {
                 google.accounts.id.initialize({
-                    client_id: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+                    client_id: GOOGLE_CLIENT_ID,
                     callback: handleGoogleOAuthCredential
                 });
             }
 
             try {
-                AppleID.auth.init({
-                    clientId: 'com.tasko.workspace.app',
-                    scope: 'name email',
-                    redirectURI: window.location.origin,
-                    usePopup: true
-                });
+                if (APPLE_CLIENT_ID) {
+                    AppleID.auth.init({
+                        clientId: APPLE_CLIENT_ID,
+                        scope: 'name email',
+                        redirectURI: window.location.origin + '/app',
+                        usePopup: true
+                    });
+                }
             } catch(e) { console.log("AppleID init note:", e); }
 
-            if (currentUser) {
+            if (currentUser && authToken) {
                 checkLoginState();
                 setInterval(loadWorkspaceChat, 3000);
+            } else if (currentUser && !authToken) {
+                logout();
             }
         };
 
@@ -508,26 +621,26 @@ HTML_TEMPLATE = """
             }, 3000);
         }
 
-        function handleFileSelect(taskIndex, input) {
+        function handleFileSelect(taskId, input) {
             if (input.files && input.files[0]) {
-                selectedProofFiles[taskIndex] = input.files[0];
+                selectedProofFiles[taskId] = input.files[0];
                 showToast("Image selected successfully!", "info");
             }
         }
 
         function triggerGoogleSignIn() {
+            if (!GOOGLE_CLIENT_ID) {
+                showToast("Google Sign-In is not configured on this server yet.", "error");
+                return;
+            }
             if (typeof google !== 'undefined') {
                 google.accounts.id.prompt((notification) => {
                     if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-                        let email = prompt("Enter your Google Account email for Tasko:", "jindalbhavik21@gmail.com");
-                        if (email) {
-                            handleGoogleOAuthCredential({ credential: email });
-                        }
+                        showToast("Google Sign-In popup was blocked or dismissed.", "info");
                     }
                 });
             } else {
-                let email = prompt("Enter your Google Account email for Tasko:", "jindalbhavik21@gmail.com");
-                if (email) handleGoogleOAuthCredential({ credential: email });
+                showToast("Google SDK still loading, try again in a second.", "info");
             }
         }
 
@@ -569,11 +682,7 @@ HTML_TEMPLATE = """
                 }
             } catch (error) {
                 hideLoader();
-                let email = prompt("Enter your Apple ID email for Tasko:", "dev.apple.user@company.com");
-                if (email) {
-                    pendingOAuthData = { email: email.trim(), name: "Apple User", provider: "Apple" };
-                    openSocialWorkspaceModal();
-                }
+                showToast("Apple Sign-In cancelled or unavailable.", "error");
             }
         }
 
@@ -598,13 +707,18 @@ HTML_TEMPLATE = """
             let res = await fetch('/api/social-login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({email: pendingOAuthData.email, name: pendingOAuthData.name, provider: pendingOAuthData.provider, company_id})
+                body: JSON.stringify({
+                    oauth_token: pendingOAuthData.oauth_token,
+                    company_id
+                })
             });
             hideLoader();
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
+                authToken = result.token;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                localStorage.setItem('tasko_token', authToken);
                 showToast(`Successfully authenticated with ${pendingOAuthData.provider}!`);
                 checkLoginState();
             } else {
@@ -619,12 +733,10 @@ HTML_TEMPLATE = """
         }
 
         function restartAutoRefreshInterval() {
-            if (workspaceRefreshInterval) {
-                clearInterval(workspaceRefreshInterval);
-            }
+            if (workspaceRefreshInterval) clearInterval(workspaceRefreshInterval);
             let intervalMs = parseInt(savedRefreshRate) * 1000;
             workspaceRefreshInterval = setInterval(() => {
-                if (!currentUser) return;
+                if (!currentUser || !authToken) return;
                 loadDashboardData();
                 if (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('handle_approvals'))) {
                     loadPendingUsers();
@@ -641,9 +753,7 @@ HTML_TEMPLATE = """
 
         function switchSection(sectionId, btnElement) {
             document.querySelectorAll('.section-view').forEach(el => el.classList.add('hidden'));
-            let target = document.getElementById(sectionId);
-            target.classList.remove('hidden');
-            
+            document.getElementById(sectionId).classList.remove('hidden');
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             btnElement.classList.add('active');
         }
@@ -658,41 +768,31 @@ HTML_TEMPLATE = """
 
         function toggleCompanyInput() {
             let role = document.getElementById('suRole').value;
-            let isCeo = role === 'CEO';
             let compInput = document.getElementById('suCompanyName');
-            if (isCeo) {
+            if (role === 'CEO') {
                 compInput.classList.remove('hidden');
-                compInput.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
             } else {
                 compInput.classList.add('hidden');
             }
         }
 
-        function nextLoginStep(btn) {
+        function nextLoginStep() {
             let email = document.getElementById('loginEmail').value.trim();
             let password = document.getElementById('loginPassword').value;
             if(!email || !password) {
                 showToast("Please enter both email and password.", "error");
                 return;
             }
-            showLoader("Verifying credentials...");
-            setTimeout(() => {
-                hideLoader();
-                document.getElementById('loginForm').classList.add('hidden');
-                let modal = document.getElementById('loginCompanyModal');
-                modal.classList.remove('hidden');
-                modal.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
-            }, 400);
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('loginCompanyModal').classList.remove('hidden');
         }
 
         function backToLoginCredentials() {
             document.getElementById('loginCompanyModal').classList.add('hidden');
-            let form = document.getElementById('loginForm');
-            form.classList.remove('hidden');
-            form.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
+            document.getElementById('loginForm').classList.remove('hidden');
         }
 
-        function nextSignupStep(btn) {
+        function nextSignupStep() {
             let name = document.getElementById('suName').value.trim();
             let email = document.getElementById('suEmail').value.trim();
             let password = document.getElementById('suPassword').value;
@@ -708,38 +808,30 @@ HTML_TEMPLATE = """
                 return;
             }
 
-            showLoader("Preparing workspace profile...");
-            setTimeout(() => {
-                hideLoader();
-                document.getElementById('signupForm').classList.add('hidden');
-                let modal = document.getElementById('signupCompanyModal');
-                modal.classList.remove('hidden');
-                modal.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
+            document.getElementById('signupForm').classList.add('hidden');
+            document.getElementById('signupCompanyModal').classList.remove('hidden');
 
-                if(role === 'CEO') {
-                    document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID (Generated)";
-                    document.getElementById('signupCompanyModalSub').innerText = "A new workspace ID will be created for your company.";
-                    document.getElementById('suCompanyId').value = Math.floor(1000000000 + Math.random() * 9000000000);
-                    document.getElementById('suCompanyId').readOnly = true;
-                    document.getElementById('suCompanyId').style.opacity = '0.7';
-                } else {
-                    document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID";
-                    document.getElementById('signupCompanyModalSub').innerText = "Enter the workspace ID provided by your company.";
-                    document.getElementById('suCompanyId').value = '';
-                    document.getElementById('suCompanyId').readOnly = false;
-                    document.getElementById('suCompanyId').style.opacity = '1';
-                }
-            }, 400);
+            if(role === 'CEO') {
+                document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID (Generated)";
+                document.getElementById('signupCompanyModalSub').innerText = "A new workspace ID will be created for your company.";
+                document.getElementById('suCompanyId').value = Math.floor(1000000000 + Math.random() * 9000000000);
+                document.getElementById('suCompanyId').readOnly = true;
+                document.getElementById('suCompanyId').style.opacity = '0.7';
+            } else {
+                document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID";
+                document.getElementById('signupCompanyModalSub').innerText = "Enter the workspace ID provided by your company.";
+                document.getElementById('suCompanyId').value = '';
+                document.getElementById('suCompanyId').readOnly = false;
+                document.getElementById('suCompanyId').style.opacity = '1';
+            }
         }
 
         function backToSignupCredentials() {
             document.getElementById('signupCompanyModal').classList.add('hidden');
-            let form = document.getElementById('signupForm');
-            form.classList.remove('hidden');
-            form.style.animation = 'fadeInScale 0.3s var(--ease-out-expo)';
+            document.getElementById('signupForm').classList.remove('hidden');
         }
 
-        async function registerAccount(btn) {
+        async function registerAccount() {
             let signupData = {
                 name: document.getElementById('suName').value.trim(),
                 email: document.getElementById('suEmail').value.trim(),
@@ -758,13 +850,15 @@ HTML_TEMPLATE = """
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
+                authToken = result.token;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                localStorage.setItem('tasko_token', authToken);
                 showToast("Account created successfully!");
                 checkLoginState();
             } else { showToast(result.error, "error"); }
         }
 
-        async function loginFinal(btn) {
+        async function loginFinal() {
             let data = {
                 email: document.getElementById('loginEmail').value.trim(),
                 password: document.getElementById('loginPassword').value,
@@ -780,7 +874,9 @@ HTML_TEMPLATE = """
             let result = await res.json();
             if(res.ok) {
                 currentUser = result.user;
+                authToken = result.token;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                localStorage.setItem('tasko_token', authToken);
                 showToast("Logged in successfully!");
                 checkLoginState();
             } else { showToast(result.error, "error"); }
@@ -788,20 +884,22 @@ HTML_TEMPLATE = """
 
         function logout() {
             currentUser = null;
+            authToken = null;
             localStorage.removeItem('tasko_user');
+            localStorage.removeItem('tasko_token');
             if (workspaceRefreshInterval) clearInterval(workspaceRefreshInterval);
             if (approvalCheckInterval) clearInterval(approvalCheckInterval);
             document.getElementById('authContainer').style.display = 'flex';
             document.getElementById('waitingContainer').classList.add('hidden');
             document.getElementById('dashboardContainer').classList.add('hidden');
             toggleAuth('login');
-            showToast("Logged out successfully.", "info");
         }
 
         async function checkLoginState() {
-            if(!currentUser) return;
+            if(!currentUser || !authToken) return;
 
-            let statusRes = await fetch(`/api/check-status?email=${currentUser.email}`);
+            let statusRes = await apiFetch('/api/check-status');
+            if (!statusRes.ok) return;
             let statusData = await statusRes.json();
             
             if(statusData.status === 'Kicked') {
@@ -815,7 +913,6 @@ HTML_TEMPLATE = """
                     document.getElementById('authContainer').style.display = 'none';
                     document.getElementById('dashboardContainer').classList.add('hidden');
                     document.getElementById('waitingContainer').classList.remove('hidden');
-                    
                     if(!approvalCheckInterval) {
                         approvalCheckInterval = setInterval(checkLoginState, 5000);
                     }
@@ -834,7 +931,6 @@ HTML_TEMPLATE = """
             document.getElementById('waitingContainer').classList.add('hidden');
             let dash = document.getElementById('dashboardContainer');
             dash.classList.remove('hidden');
-            dash.style.animation = 'fadeInScale 0.4s var(--ease-out-expo)';
             
             document.getElementById('sidebarUserName').innerText = currentUser.name;
             document.getElementById('sidebarUserRole').innerText = currentUser.role;
@@ -859,68 +955,77 @@ HTML_TEMPLATE = """
                 document.getElementById('navLogs').classList.toggle('hidden', !permissions.includes('view_logs'));
             }
 
+            if(isCeo || permissions.includes('handle_approvals') || permissions.includes('assign_tasks') || permissions.includes('config_routines')) {
+                loadEmployeesDropdown();
+            }
             if(isCeo || permissions.includes('handle_approvals')) {
                 loadPendingUsers();
                 loadEmployeesManagement();
-                loadEmployeesDropdown();
             }
             loadDashboardData();
             loadWorkspaceChat();
             restartAutoRefreshInterval();
         }
 
-        async function updateCompanyName(btn) {
+        async function updateCompanyName() {
             let newName = document.getElementById('settingsCompanyName').value.trim();
             if(!newName) { showToast("Company name cannot be empty.", "error"); return; }
             showLoader("Updating company name...");
-            let res = await fetch('/api/admin/update-company', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({company_id: currentUser.company_id, company_name: newName})});
+            let res = await apiFetch('/api/admin/update-company', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({company_name: newName})
+            });
             hideLoader();
             if(res.ok) {
                 currentUser.company_name = newName;
                 localStorage.setItem('tasko_user', JSON.stringify(currentUser));
                 document.getElementById('brandCompanyName').innerText = newName;
                 showToast("Company name updated successfully!");
+            } else {
+                let err = await res.json();
+                showToast(err.error || "Unauthorized", "error");
             }
         }
 
         async function loadPendingUsers() {
-            let res = await fetch(`/api/admin/pending-users?company_id=${currentUser.company_id}`);
+            let res = await apiFetch('/api/admin/pending-users');
+            if (!res.ok) return;
             let data = await res.json();
             let container = document.getElementById('pendingUsersList');
             if(data.pending_users.length === 0) {
                 container.innerHTML = "<span style='color:var(--subtext);'>No pending users.</span>";
                 return;
             }
-            container.innerHTML = data.pending_users.map(u => `
-                <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:12px; border:1px solid var(--border-color); animation: fadeInScale 0.3s var(--ease-out-expo);">
+            container.innerHTML = data.pending_users.map(u => {
+                let key = u.email.replace(/[^a-zA-Z0-9]/g, '_');
+                return `
+                <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:12px; border:1px solid var(--border-color);">
                     <div style="margin-bottom:8px;"><strong>${u.name}</strong> (${u.email})</div>
-                    
                     <label style="font-size:0.8em; color:var(--subtext);">Select Stance / Type Custom Role:</label>
-                    <select id="stanceSelect_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" onchange="if(this.value==='Custom') document.getElementById('customStance_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}').classList.remove('hidden'); else document.getElementById('customStance_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}').classList.add('hidden');" style="margin-bottom:8px;">
+                    <select id="stanceSelect_${key}" onchange="document.getElementById('customStance_${key}').classList.toggle('hidden', this.value!=='Custom')" style="margin-bottom:8px;">
                         <option value="Team Member">Team Member</option>
                         <option value="Lead Developer">Lead Developer</option>
                         <option value="Operations Manager">Operations Manager</option>
                         <option value="Marketing Specialist">Marketing Specialist</option>
                         <option value="Custom">Custom Role...</option>
                     </select>
-                    <input type="text" id="customStance_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" placeholder="Enter custom stance..." class="hidden" style="margin-bottom:10px;">
-
-                    <label style="font-size:0.8em; color:var(--subtext); display:block; margin-bottom:6px;">Executive & Management Permissions Checklist:</label>
+                    <input type="text" id="customStance_${key}" placeholder="Enter custom stance..." class="hidden" style="margin-bottom:10px;">
+                    <label style="font-size:0.8em; color:var(--subtext); display:block; margin-bottom:6px;">Permissions:</label>
                     <div style="display:flex; flex-direction:column; gap:6px; font-size:0.85em; margin-bottom:14px;">
-                        <label><input type="checkbox" id="perm_approvals_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Handle Employee Approvals</label>
-                        <label><input type="checkbox" id="perm_kick_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Kick Employees</label>
-                        <label><input type="checkbox" id="perm_routines_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Set Daily Routines</label>
-                        <label><input type="checkbox" id="perm_stances_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}"> Modify Stances & Roles</label>
-                        <label><input type="checkbox" id="perm_assign_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> Assign Tasks</label>
-                        <label><input type="checkbox" id="perm_logs_${u.email.replace(/[^a-zA-Z0-9]/g, '_')}" checked> View Activity Logs</label>
+                        <label><input type="checkbox" id="perm_approvals_${key}"> Handle Employee Approvals</label>
+                        <label><input type="checkbox" id="perm_kick_${key}"> Kick Employees</label>
+                        <label><input type="checkbox" id="perm_routines_${key}"> Set Daily Routines</label>
+                        <label><input type="checkbox" id="perm_stances_${key}"> Modify Stances & Roles</label>
+                        <label><input type="checkbox" id="perm_assign_${key}" checked> Assign Tasks</label>
+                        <label><input type="checkbox" id="perm_logs_${key}" checked> View Activity Logs</label>
                     </div>
-
-                    <button onclick="approveUser('${u.email}', this)" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
-                </div>
-            `).join('');
+                    <button onclick="approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
+                </div>`;
+            }).join('');
         }
 
-        async function approveUser(email, btn) {
+        async function approveUser(email) {
             let emailKey = email.replace(/[^a-zA-Z0-9]/g, '_');
             let stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
             let stance = stanceDropdown === 'Custom' ? document.getElementById(`customStance_${emailKey}`).value.trim() : stanceDropdown;
@@ -935,20 +1040,26 @@ HTML_TEMPLATE = """
             if(document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push('view_logs');
 
             showLoader("Approving employee...");
-            await fetch('/api/admin/approve-user', {
+            let res = await apiFetch('/api/admin/approve-user', {
                 method: 'POST', 
                 headers: {'Content-Type': 'application/json'}, 
                 body: JSON.stringify({ email, stance, permissions })
             });
             hideLoader();
-            showToast("Employee approved successfully!");
-            loadPendingUsers();
-            loadEmployeesManagement();
-            loadEmployeesDropdown();
+            if (res.ok) {
+                showToast("Employee approved successfully!");
+                loadPendingUsers();
+                loadEmployeesManagement();
+                loadEmployeesDropdown();
+            } else {
+                let err = await res.json();
+                showToast(err.error || "Approval failed", "error");
+            }
         }
 
         async function loadEmployeesManagement() {
-            let res = await fetch(`/api/admin/employees-list?company_id=${currentUser.company_id}`);
+            let res = await apiFetch('/api/admin/employees-list');
+            if (!res.ok) return;
             let data = await res.json();
             let container = document.getElementById('employeesManageList');
             if(data.employees.length === 0) {
@@ -956,12 +1067,12 @@ HTML_TEMPLATE = """
                 return;
             }
             container.innerHTML = data.employees.map(e => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color); animation: fadeInScale 0.3s var(--ease-out-expo);">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color);">
                     <div>
                         <span>${e.name} (${e.email}) • <b style="color:var(--accent);">${e.stance || e.role}</b></span>
                         <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${(e.permissions || []).join(', ') || 'None'}</div>
                     </div>
-                    ${(currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees'))) ? `<button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
+                    ${(e.role !== 'CEO' && (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees')))) ? `<button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
                 </div>
             `).join('');
         }
@@ -969,7 +1080,11 @@ HTML_TEMPLATE = """
         async function kickEmployee(email) {
             if(!confirm("Are you sure you want to kick this employee?")) return;
             showLoader("Removing employee...");
-            let res = await fetch('/api/admin/kick-employee', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, company_id: currentUser.company_id})});
+            let res = await apiFetch('/api/admin/kick-employee', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({email})
+            });
             hideLoader();
             if(res.ok) {
                 showToast("Employee removed from workspace.", "info");
@@ -983,64 +1098,73 @@ HTML_TEMPLATE = """
         }
 
         async function loadEmployeesDropdown() {
-            let res = await fetch(`/api/admin/employees-list?company_id=${currentUser.company_id}`);
+            let res = await apiFetch('/api/admin/employees-list');
+            if (!res.ok) return;
             let data = await res.json();
             let opts = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${e.name}">${e.name} (${e.stance || e.role})</option>`).join('');
             document.getElementById('taskAssigneeSelect').innerHTML = opts;
             document.getElementById('routineAssigneeSelect').innerHTML = opts;
         }
 
-        async function createTask(btn) {
+        async function createTask() {
             let data = {
                 title: document.getElementById('taskTitle').value.trim(),
                 assigned_to: document.getElementById('taskAssigneeSelect').value,
                 deadline: document.getElementById('taskDeadline').value,
-                priority: document.getElementById('taskPriority').value,
-                company_id: currentUser.company_id
+                priority: document.getElementById('taskPriority').value
             };
             if(!data.title || !data.assigned_to) {
                 showToast("Please fill out task title and select an assignee.", "error");
                 return;
             }
             showLoader("Assigning task...");
-            await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            let res = await apiFetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
             hideLoader();
-            document.getElementById('taskTitle').value = '';
-            document.getElementById('taskDeadline').value = '';
-            showToast("Task assigned successfully!");
-            loadDashboardData();
+            if (res.ok) {
+                document.getElementById('taskTitle').value = '';
+                document.getElementById('taskDeadline').value = '';
+                showToast("Task assigned successfully!");
+                loadDashboardData();
+            } else {
+                let err = await res.json();
+                showToast(err.error || "Failed to assign task", "error");
+            }
         }
 
-        async function createDailyRoutine(btn) {
+        async function createDailyRoutine() {
             let data = {
                 title: document.getElementById('routineTitle').value.trim(),
-                assigned_to: document.getElementById('routineAssigneeSelect').value,
-                company_id: currentUser.company_id
+                assigned_to: document.getElementById('routineAssigneeSelect').value
             };
             if(!data.title || !data.assigned_to) {
                 showToast("Please fill out routine title and select an assignee.", "error");
                 return;
             }
             showLoader("Configuring routine...");
-            await fetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            let res = await apiFetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
             hideLoader();
-            document.getElementById('routineTitle').value = '';
-            showToast("Daily routine configured successfully!");
-            loadDashboardData();
+            if (res.ok) {
+                document.getElementById('routineTitle').value = '';
+                showToast("Daily routine configured successfully!");
+                loadDashboardData();
+            } else {
+                let err = await res.json();
+                showToast(err.error || "Failed to add routine", "error");
+            }
         }
 
         async function loadDashboardData() {
-            let res = await fetch(`/api/data?company_id=${currentUser.company_id}`);
+            let res = await apiFetch('/api/data');
+            if (!res.ok) return;
             let data = await res.json();
             
             let tasksContainer = document.getElementById('myTasksList');
-            let userTasks = data.tasks.filter(t => String(t.company_id) === String(currentUser.company_id) && (currentUser.role === 'CEO' || t.assigned_to === currentUser.name));
+            let userTasks = data.tasks.filter(t => currentUser.role === 'CEO' || t.assigned_to === currentUser.name);
             
             if(userTasks.length === 0) {
                 tasksContainer.innerHTML = "<span style='color:var(--subtext);'>No tasks found.</span>";
             } else {
-                tasksContainer.innerHTML = userTasks.map((t, idx) => {
-                    let globalIdx = data.tasks.indexOf(t);
+                tasksContainer.innerHTML = userTasks.map(t => {
                     let statusBadge = t.status === 'Completed' ? '<span class="badge-done"><span class="pulsing-dot"></span>Completed</span>' : 
                                       t.status === 'Failed' ? '<span class="badge-failed"><span class="pulsing-dot"></span>Failed</span>' : 
                                       '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Proof</span>';
@@ -1048,19 +1172,19 @@ HTML_TEMPLATE = """
                     let actionHtml = '';
                     if(currentUser.role !== 'CEO') {
                         actionHtml = `
-                            <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;" id="taskProofBox_${globalIdx}">
+                            <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
                                 <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
-                                <input type="file" id="proofFile_${globalIdx}" accept="image/*" style="margin-bottom:10px; padding:8px;" onchange="handleFileSelect(${globalIdx}, this)">
-                                <button onclick="submitProof(${globalIdx}, this)" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
+                                <input type="file" id="proofFile_${t.id}" accept="image/*" style="margin-bottom:10px; padding:8px;" onchange="handleFileSelect(${t.id}, this)">
+                                <button onclick="submitProof(${t.id})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
                             </div>
                         `;
                     }
 
                     return `
-                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color); transition: all 0.3s var(--ease-out-expo); animation: fadeInScale 0.3s var(--ease-out-expo);">
+                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
                             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                                 <div>
-                                    <strong style="font-size:1.1em; letter-spacing:-0.01em;">${t.title}</strong>
+                                    <strong style="font-size:1.1em;">${t.title}</strong>
                                     <div style="font-size:0.85em; color:var(--subtext); margin-top:6px;">
                                         Assigned to: ${t.assigned_to} • Priority: ${t.priority} • Deadline: ${t.deadline || 'None'}
                                     </div>
@@ -1076,36 +1200,29 @@ HTML_TEMPLATE = """
 
             let routinesContainer = document.getElementById('dailyRoutinesList');
             let configRoutinesContainer = document.getElementById('configRoutinesList');
-            let userRoutines = data.routines.filter(r => String(r.company_id) === String(currentUser.company_id));
 
             if(configRoutinesContainer) {
-                configRoutinesContainer.innerHTML = userRoutines.length === 0 ? "<span style='color:var(--subtext);'>No daily routines configured.</span>" :
-                    userRoutines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color); animation: fadeInScale 0.2s var(--ease-out-expo);"><b>${r.title}</b> • Assigned to: ${r.assigned_to}</div>`).join('');
+                configRoutinesContainer.innerHTML = data.routines.length === 0 ? "<span style='color:var(--subtext);'>No daily routines configured.</span>" :
+                    data.routines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color);"><b>${r.title}</b> • Assigned to: ${r.assigned_to}</div>`).join('');
             }
 
-            let viewableRoutines = userRoutines.filter(r => currentUser.role === 'CEO' || r.assigned_to === currentUser.name);
+            let viewableRoutines = data.routines.filter(r => currentUser.role === 'CEO' || r.assigned_to === currentUser.name);
             if(viewableRoutines.length === 0) {
                 routinesContainer.innerHTML = "<span style='color:var(--subtext);'>No daily routines for today.</span>";
             } else {
                 routinesContainer.innerHTML = viewableRoutines.map(r => {
-                    let rIdx = data.routines.indexOf(r);
                     let isDoneToday = r.today_status === 'Completed';
                     let statusBadge = isDoneToday ? '<span class="badge-done"><span class="pulsing-dot"></span>Done Today ✓</span>' : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Today</span>';
-                    
-                    let actionHtml = '';
-                    if(currentUser.role !== 'CEO' && !isDoneToday) {
-                        actionHtml = `
-                            <div style="margin-top:12px;">
-                                <button onclick="markRoutineDone(${rIdx}, this)" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
-                            </div>
-                        `;
-                    }
+                    let actionHtml = (currentUser.role !== 'CEO' && !isDoneToday) ? `
+                        <div style="margin-top:12px;">
+                            <button onclick="markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
+                        </div>` : '';
 
                     return `
-                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color); animation: fadeInScale 0.3s var(--ease-out-expo);">
+                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <div>
-                                    <strong style="font-size:1.05em; letter-spacing:-0.01em;">${r.title}</strong>
+                                    <strong style="font-size:1.05em;">${r.title}</strong>
                                     <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${r.assigned_to} • Resets daily</div>
                                 </div>
                                 <div>${statusBadge}</div>
@@ -1117,20 +1234,16 @@ HTML_TEMPLATE = """
             }
 
             let historyBody = document.getElementById('historyTableBody');
-            let workspaceHistory = data.history.filter(h => !h.company_id || String(h.company_id) === String(currentUser.company_id));
-            historyBody.innerHTML = workspaceHistory.length === 0 ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>` : 
-                workspaceHistory.map(h => `<tr><td style="color:var(--subtext); width:150px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
+            historyBody.innerHTML = data.history.length === 0 ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>` : 
+                data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
         }
 
-        async function submitProof(taskIndex, btn) {
-            let file = selectedProofFiles[taskIndex];
+        async function submitProof(taskId) {
+            let file = selectedProofFiles[taskId];
             if (!file) {
-                let fileInput = document.getElementById(`proofFile_${taskIndex}`);
-                if (fileInput && fileInput.files && fileInput.files[0]) {
-                    file = fileInput.files[0];
-                }
+                let fileInput = document.getElementById(`proofFile_${taskId}`);
+                if (fileInput && fileInput.files && fileInput.files[0]) file = fileInput.files[0];
             }
-
             if (!file) {
                 showToast("Please select an image file first.", "error");
                 return;
@@ -1141,10 +1254,10 @@ HTML_TEMPLATE = """
                 let base64Image = reader.result.split(',')[1];
                 showLoader("Analyzing proof with Gemini AI...");
                 try {
-                    let res = await fetch('/api/tasks/verify-proof', {
+                    let res = await apiFetch('/api/tasks/verify-proof', {
                         method: 'POST', 
                         headers: {'Content-Type': 'application/json'}, 
-                        body: JSON.stringify({index: taskIndex, image: base64Image, mime_type: file.type})
+                        body: JSON.stringify({task_id: taskId, image: base64Image, mime_type: file.type})
                     });
                     hideLoader();
                     let result = await res.json();
@@ -1159,23 +1272,25 @@ HTML_TEMPLATE = """
                     showToast("Network error while submitting proof.", "error");
                 }
             };
-            reader.onerror = function() {
-                showToast("Failed to read selected file.", "error");
-            };
             reader.readAsDataURL(file);
         }
 
-        async function markRoutineDone(routineIndex, btn) {
+        async function markRoutineDone(routineId) {
             showLoader("Updating routine status...");
-            await fetch('/api/routines/complete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index: routineIndex})});
+            await apiFetch('/api/routines/complete', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({routine_id: routineId})
+            });
             hideLoader();
             showToast("Daily routine marked completed!");
             loadDashboardData();
         }
 
         async function loadWorkspaceChat() {
-            if(!currentUser) return;
-            let res = await fetch(`/api/chat?company_id=${currentUser.company_id}`);
+            if(!currentUser || !authToken) return;
+            let res = await apiFetch('/api/chat');
+            if (!res.ok) return;
             let data = await res.json();
             let box = document.getElementById('chatBox');
             box.innerHTML = data.messages.length === 0 ? '<i style="color:var(--subtext);">No messages yet. Say hi!</i>' :
@@ -1187,7 +1302,11 @@ HTML_TEMPLATE = """
             let input = document.getElementById('chatInput');
             let text = input.value.trim();
             if(!text) return;
-            await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({company_id: currentUser.company_id, sender: currentUser.name, text})});
+            await apiFetch('/api/chat', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({text})
+            });
             input.value = '';
             loadWorkspaceChat();
         }
@@ -1197,15 +1316,18 @@ HTML_TEMPLATE = """
 """
 
 
-# --- Updated Routes: Landing Page at Root, App at /app ---
+# --- Public Pages ---
 @app.route("/")
 def landing_page():
     return render_template("landing.html")
 
 @app.route("/app")
 def index():
-    return render_template_string(HTML_TEMPLATE)
-
+    return render_template_string(
+        HTML_TEMPLATE,
+        google_client_id=GOOGLE_CLIENT_ID,
+        apple_client_id=APPLE_CLIENT_ID
+    )
 
 @app.route("/favicon.ico")
 def favicon():
@@ -1214,490 +1336,423 @@ def favicon():
     draw = ImageDraw.Draw(img)
     draw.rounded_rectangle([4, 4, 60, 60], radius=14, fill=(15, 21, 35, 255), outline=(94, 106, 210, 255), width=2)
     draw.line([(18, 34), (28, 44), (46, 22)], fill=(94, 106, 210, 255), width=5, joint="curve")
-    
     io_buf = io.BytesIO()
     img.save(io_buf, format="PNG")
     io_buf.seek(0)
     return send_file(io_buf, mimetype="image/png")
 
 
+# --- OAuth Endpoints (Strict Token Verification) ---
 @app.route("/api/auth/google", methods=["POST"])
 def auth_google():
-    token = request.json.get("credential")
+    token = (request.json or {}).get("credential")
+    if not token or not GOOGLE_CLIENT_ID:
+        return jsonify({"error": "Google OAuth token or Client ID missing."}), 400
     try:
-        if "@" in str(token) and "." in str(token):
-            email = token.strip()
-            name = email.split('@')[0].capitalize()
-        else:
-            idinfo = google_id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
-            email = idinfo['email']
-            name = idinfo.get('name', email.split('@')[0])
-        return jsonify({"success": True, "email": email, "name": name, "provider": "Google"})
+        idinfo = google_id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
+        email = idinfo["email"]
+        name = idinfo.get("name", email.split("@")[0])
+        oauth_token = jwt.encode(
+            {"email": email, "name": name, "provider": "Google", "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10)},
+            SECRET_KEY, algorithm="HS256"
+        )
+        return jsonify({"success": True, "provider": "Google", "oauth_token": oauth_token})
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": f"Invalid Google token: {str(e)}"}), 401
 
 
 @app.route("/api/auth/apple", methods=["POST"])
 def auth_apple():
-    id_token = request.json.get("id_token")
+    id_token = (request.json or {}).get("id_token")
+    if not id_token:
+        return jsonify({"error": "Apple ID token missing."}), 400
     try:
-        apple_keys_url = "https://appleid.apple.com/auth/keys"
-        apple_keys = requests.get(apple_keys_url).json()
-        
+        apple_keys = requests.get("https://appleid.apple.com/auth/keys", timeout=5).json()
         header = jwt.get_unverified_header(id_token)
-        apple_key = next((key for key in apple_keys['keys'] if key['kid'] == header['kid']), None)
-        
+        apple_key = next((key for key in apple_keys["keys"] if key["kid"] == header["kid"]), None)
         if not apple_key:
             return jsonify({"error": "Invalid Apple public key ID."}), 400
-            
         public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(apple_key))
         payload = jwt.decode(id_token, public_key, audience=APPLE_CLIENT_ID, algorithms=["RS256"])
-        
-        email = payload.get('email')
-        name = payload.get('name', email.split('@')[0] if email else "Apple User")
-        
-        return jsonify({"success": True, "email": email, "name": name, "provider": "Apple"})
+        email = payload.get("email")
+        name = payload.get("name", email.split("@")[0] if email else "Apple User")
+        oauth_token = jwt.encode(
+            {"email": email, "name": name, "provider": "Apple", "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10)},
+            SECRET_KEY, algorithm="HS256"
+        )
+        return jsonify({"success": True, "provider": "Apple", "oauth_token": oauth_token})
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": f"Invalid Apple token: {str(e)}"}), 401
 
 
+# --- Standard & Social Auth ---
 @app.route("/api/signup", methods=["POST"])
 def signup():
-    data = request.json
+    data = request.json or {}
     name = (data.get("name") or "").strip()
-    email = (data.get("email") or "").strip()
+    email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
     role = data.get("role", "Employee")
 
     if not name or not email or not password:
-        return jsonify({"error": "All fields (name, email, password) are required and cannot be blank."}), 400
+        return jsonify({"error": "All fields (name, email, password) are required."}), 400
 
-    if email in USERS_DB or email in PENDING_USERS_DB:
-        return jsonify({"error": "Email already registered."}), 400
+    with get_db() as conn:
+        existing = conn.execute("SELECT email FROM users WHERE email = ?", (email,)).fetchone()
+        if existing:
+            return jsonify({"error": "Email already registered."}), 400
 
-    user_data = {
-        "name": name,
-        "email": email,
-        "password": password,
-        "role": role,
-        "status": "Pending" if role == "Employee" else "Approved",
-        "stance": "CEO" if role == "CEO" else "",
-        "permissions": ["handle_approvals", "kick_employees", "config_routines", "modify_stances", "assign_tasks", "view_logs"] if role == "CEO" else [],
-    }
+        pw_hash = generate_password_hash(password)
+        status = "Approved" if role == "CEO" else "Pending"
+        stance = "CEO" if role == "CEO" else ""
+        perms = json.dumps(["handle_approvals", "kick_employees", "config_routines", "modify_stances", "assign_tasks", "view_logs"] if role == "CEO" else [])
 
-    if role == "CEO":
-        company_name = (data.get("company_name") or "").strip()
-        if not company_name:
-            return jsonify({"error": "Company name cannot be blank when creating a workspace."}), 400
+        if role == "CEO":
+            company_name = (data.get("company_name") or "").strip()
+            if not company_name:
+                return jsonify({"error": "Company name cannot be blank when creating a workspace."}), 400
+            company_id = str(random.randint(1000000000, 9999999999))
+            conn.execute(
+                "INSERT INTO users (email, name, password_hash, role, status, stance, permissions, company_id, company_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (email, name, pw_hash, "CEO", status, stance, perms, company_id, company_name)
+            )
+            log_history(conn, company_id, f"Company '{company_name}' created by CEO {name}")
+        else:
+            company_id = (data.get("company_id") or "").strip()
+            if not company_id:
+                return jsonify({"error": "Workspace Company ID is required."}), 400
+            ceo_row = conn.execute("SELECT company_name FROM users WHERE company_id = ? AND role = 'CEO'", (company_id,)).fetchone()
+            if not ceo_row:
+                return jsonify({"error": "Invalid Workspace ID. Company does not exist."}), 404
+            company_name = ceo_row["company_name"]
+            conn.execute(
+                "INSERT INTO users (email, name, password_hash, role, status, stance, permissions, company_id, company_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (email, name, pw_hash, "Employee", status, stance, perms, company_id, company_name)
+            )
 
-        company_id = str(data.get("company_id") or random.randint(1000000000, 9999999999))
-        user_data["company_id"] = company_id
-        user_data["company_name"] = company_name
-        USERS_DB[email] = user_data
-        save_db("users.json", USERS_DB)
-        HISTORY_DB.insert(
-            0,
-            {
-                "company_id": company_id,
-                "action": f"Company '{company_name}' created by CEO {name}",
-                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            },
-        )
-        save_db("history.json", HISTORY_DB)
-    else:
-        company_id = (data.get("company_id") or "").strip()
-        
-        if not company_id:
-            return jsonify({"error": "Workspace Company ID is required."}), 400
-
-        valid_workspace_exists = False
-        workspace_matched_name = "Tasko Workspace"
-        for u in USERS_DB.values():
-            if str(u.get("company_id")) == str(company_id) and u.get("role") == "CEO":
-                valid_workspace_exists = True
-                workspace_matched_name = u.get("company_name", "Tasko Workspace")
-                break
-
-        if not valid_workspace_exists:
-            return jsonify({"error": "Invalid Workspace ID. Company does not exist in our system."}), 404
-
-        user_data["company_id"] = company_id
-        user_data["company_name"] = workspace_matched_name
-        PENDING_USERS_DB[email] = user_data
-        save_db("pending_users.json", PENDING_USERS_DB)
-
-    return jsonify({"success": True, "user": user_data})
+        user_row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        user_dict = serialize_user(user_row)
+        return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
 
 
 @app.route("/api/login", methods=["POST"])
 def login():
-    data = request.json
-    email = (data.get("email") or "").strip()
+    data = request.json or {}
+    email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
     company_id = (data.get("company_id") or "").strip()
 
-    if not email or not password:
-        return jsonify({"error": "Email and password cannot be blank."}), 400
-    if not company_id:
-        return jsonify({"error": "Workspace Company ID is required."}), 400
+    if not email or not password or not company_id:
+        return jsonify({"error": "Email, password, and Workspace ID are required."}), 400
 
-    user = USERS_DB.get(email) or PENDING_USERS_DB.get(email)
-    if not user or user.get("password") != password:
-        return jsonify({"error": "Invalid email or password."}), 401
-    
-    if str(user.get("company_id")) != str(company_id):
-        return jsonify({"error": "Invalid Workspace ID for this account."}), 401
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if not row or not row["password_hash"] or not check_password_hash(row["password_hash"], password):
+            return jsonify({"error": "Invalid email or password."}), 401
+        if str(row["company_id"]) != str(company_id):
+            return jsonify({"error": "Invalid Workspace ID for this account."}), 401
 
-    return jsonify({"success": True, "user": user})
+        user_dict = serialize_user(row)
+        return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
 
 
 @app.route("/api/social-login", methods=["POST"])
 def social_login():
-    data = request.json
-    email = (data.get("email") or "").strip()
-    name = data.get("name") or email.split("@")[0].capitalize()
-    provider = data.get("provider")
+    data = request.json or {}
+    oauth_token = data.get("oauth_token")
     company_id = (data.get("company_id") or "").strip()
 
-    if not email or not company_id:
-        return jsonify({"error": "Email and Workspace ID are required."}), 400
+    if not oauth_token or not company_id:
+        return jsonify({"error": "OAuth token and Workspace ID are required."}), 400
 
-    user = USERS_DB.get(email) or PENDING_USERS_DB.get(email)
-    if not user:
-        valid_workspace_exists = False
-        workspace_matched_name = "Tasko Workspace"
-        for u in USERS_DB.values():
-            if str(u.get("company_id")) == str(company_id) and u.get("role") == "CEO":
-                valid_workspace_exists = True
-                workspace_matched_name = u.get("company_name", "Tasko Workspace")
-                break
+    try:
+        verified = jwt.decode(oauth_token, SECRET_KEY, algorithms=["HS256"])
+    except Exception:
+        return jsonify({"error": "OAuth verification expired or invalid."}), 401
 
-        if not valid_workspace_exists:
-            return jsonify({"error": "Invalid Workspace ID. Company does not exist."}), 404
+    email = verified["email"].strip().lower()
+    name = verified["name"]
 
-        user = {
-            "name": name,
-            "email": email,
-            "role": "Employee",
-            "status": "Pending",
-            "stance": "",
-            "permissions": [],
-            "company_id": company_id,
-            "company_name": workspace_matched_name
-        }
-        PENDING_USERS_DB[email] = user
-        save_db("pending_users.json", PENDING_USERS_DB)
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if not row:
+            ceo_row = conn.execute("SELECT company_name FROM users WHERE company_id = ? AND role = 'CEO'", (company_id,)).fetchone()
+            if not ceo_row:
+                return jsonify({"error": "Invalid Workspace ID. Company does not exist."}), 404
+            conn.execute(
+                "INSERT INTO users (email, name, password_hash, role, status, stance, permissions, company_id, company_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (email, name, "", "Employee", "Pending", "", "[]", company_id, ceo_row["company_name"])
+            )
+            row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
 
-    if str(user.get("company_id")) != str(company_id):
-        return jsonify({"error": "Invalid Workspace ID for this account."}), 401
+        if str(row["company_id"]) != str(company_id):
+            return jsonify({"error": "Invalid Workspace ID for this account."}), 401
 
-    return jsonify({"success": True, "user": user})
+        user_dict = serialize_user(row)
+        return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
 
 
+# --- Protected Workspace Endpoints ---
 @app.route("/api/check-status", methods=["GET"])
+@require_auth
 def check_status():
-    email = request.args.get("email")
-    if email in USERS_DB:
-        user = USERS_DB[email]
+    user = request.current_user
+    if user["status"] == "Approved":
         return jsonify({
-            "status": "Approved", 
-            "company_name": user.get("company_name", "Tasko Workspace"),
-            "stance": user.get("stance", "Team Member"),
-            "permissions": user.get("permissions", [])
+            "status": "Approved",
+            "company_name": user["company_name"],
+            "stance": user["stance"],
+            "permissions": user["permissions"]
         })
-    elif email in PENDING_USERS_DB:
-        return jsonify({"status": "Pending"})
-    return jsonify({"status": "Kicked"})
+    return jsonify({"status": "Pending"})
 
 
 @app.route("/api/data", methods=["GET"])
+@require_auth
 def get_data():
-    company_id = request.args.get("company_id")
+    user = request.current_user
+    if user["status"] != "Approved":
+        return jsonify({"error": "Account pending CEO approval."}), 403
+
+    company_id = str(user["company_id"])
     today_date = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    today_logs = DAILY_LOGS_DB.get(today_date, {})
-    routines_with_status = []
-    for idx, r in enumerate(DAILY_ROUTINES_DB):
-        if str(r.get("company_id")) == str(company_id):
-            r_copy = r.copy()
-            r_copy["today_status"] = today_logs.get(str(idx), "Pending")
-            routines_with_status.append(r_copy)
+    with get_db() as conn:
+        tasks = [dict(r) for r in conn.execute("SELECT * FROM tasks WHERE company_id = ? ORDER BY id DESC", (company_id,)).fetchall()]
+        routines_rows = conn.execute("SELECT * FROM routines WHERE company_id = ?", (company_id,)).fetchall()
+        logs_rows = conn.execute("SELECT routine_id, status FROM daily_logs WHERE log_date = ?", (today_date,)).fetchall()
+        logs_map = {r["routine_id"]: r["status"] for r in logs_rows}
 
-    return jsonify({
-        "tasks": [t for t in TASKS_DB if str(t.get("company_id")) == str(company_id)],
-        "routines": routines_with_status,
-        "history": [h for h in HISTORY_DB if str(h.get("company_id")) == str(company_id) or "company_id" not in h],
-    })
+        routines = []
+        for r in routines_rows:
+            rd = dict(r)
+            rd["today_status"] = logs_map.get(r["id"], "Pending")
+            routines.append(rd)
+
+        history = [dict(r) for r in conn.execute("SELECT * FROM history WHERE company_id = ? ORDER BY id DESC LIMIT 100", (company_id,)).fetchall()]
+
+    return jsonify({"tasks": tasks, "routines": routines, "history": history})
 
 
 @app.route("/api/tasks", methods=["POST"])
+@require_auth
 def add_task():
-    data = request.json
+    user = request.current_user
+    if not has_permission(user, "assign_tasks"):
+        return jsonify({"error": "Permission denied."}), 403
+
+    data = request.json or {}
     title = (data.get("title") or "").strip()
-    assigned_to = data.get("assigned_to")
-    deadline = data.get("deadline")
+    assigned_to = (data.get("assigned_to") or "").strip()
+    deadline = data.get("deadline") or ""
     priority = data.get("priority", "Medium")
-    company_id = data.get("company_id")
+    company_id = str(user["company_id"])
 
     if not title or not assigned_to:
         return jsonify({"error": "Task title and assignee cannot be blank."}), 400
 
-    TASKS_DB.append({
-        "title": title,
-        "assigned_to": assigned_to,
-        "deadline": deadline,
-        "priority": priority,
-        "status": "Pending",
-        "ai_comment": "",
-        "company_id": company_id,
-    })
-    save_db("tasks.json", TASKS_DB)
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO tasks (title, assigned_to, deadline, priority, status, ai_comment, company_id) VALUES (?, ?, ?, ?, 'Pending', '', ?)",
+            (title, assigned_to, deadline, priority, company_id)
+        )
+        log_history(conn, company_id, f"Task '{title}' assigned to {assigned_to} (Deadline: {deadline or 'None'})")
 
-    HISTORY_DB.insert(
-        0,
-        {
-            "company_id": company_id,
-            "action": f"Task '{title}' assigned to {assigned_to} (Deadline: {deadline or 'None'})",
-            "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        },
-    )
-    save_db("history.json", HISTORY_DB)
     return jsonify({"success": True})
 
 
 @app.route("/api/routines", methods=["POST"])
+@require_auth
 def add_routine():
-    data = request.json
+    user = request.current_user
+    if not has_permission(user, "config_routines"):
+        return jsonify({"error": "Permission denied."}), 403
+
+    data = request.json or {}
     title = (data.get("title") or "").strip()
-    assigned_to = data.get("assigned_to")
-    company_id = data.get("company_id")
+    assigned_to = (data.get("assigned_to") or "").strip()
+    company_id = str(user["company_id"])
 
     if not title or not assigned_to:
         return jsonify({"error": "Routine title and assignee cannot be blank."}), 400
 
-    DAILY_ROUTINES_DB.append({
-        "title": title,
-        "assigned_to": assigned_to,
-        "company_id": company_id,
-    })
-    save_db("routines.json", DAILY_ROUTINES_DB)
+    with get_db() as conn:
+        conn.execute("INSERT INTO routines (title, assigned_to, company_id) VALUES (?, ?, ?)", (title, assigned_to, company_id))
+        log_history(conn, company_id, f"Auto-daily routine '{title}' set for {assigned_to}")
 
-    HISTORY_DB.insert(
-        0,
-        {
-            "company_id": company_id,
-            "action": f"Auto-daily routine '{title}' set for {assigned_to}",
-            "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        },
-    )
-    save_db("history.json", HISTORY_DB)
     return jsonify({"success": True})
 
 
 @app.route("/api/routines/complete", methods=["POST"])
+@require_auth
 def complete_routine():
-    data = request.json
-    index = data.get("index")
+    user = request.current_user
+    routine_id = (request.json or {}).get("routine_id")
     today_date = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    if index is None or not (0 <= index < len(DAILY_ROUTINES_DB)):
-        return jsonify({"error": "Routine not found."}), 404
+    with get_db() as conn:
+        routine = conn.execute("SELECT * FROM routines WHERE id = ? AND company_id = ?", (routine_id, str(user["company_id"]))).fetchone()
+        if not routine:
+            return jsonify({"error": "Routine not found."}), 404
 
-    if today_date not in DAILY_LOGS_DB:
-        DAILY_LOGS_DB[today_date] = {}
+        conn.execute(
+            "INSERT OR REPLACE INTO daily_logs (log_date, routine_id, status) VALUES (?, ?, 'Completed')",
+            (today_date, routine_id)
+        )
+        log_history(conn, user["company_id"], f"Daily routine '{routine['title']}' marked completed for today by {user['name']}")
 
-    DAILY_LOGS_DB[today_date][str(index)] = "Completed"
-    save_db("daily_logs.json", DAILY_LOGS_DB)
-
-    routine = DAILY_ROUTINES_DB[index]
-    HISTORY_DB.insert(
-        0,
-        {
-            "company_id": routine.get("company_id"),
-            "action": f"Daily routine '{routine['title']}' marked completed for today by {routine['assigned_to']}",
-            "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        },
-    )
-    save_db("history.json", HISTORY_DB)
     return jsonify({"success": True})
 
 
 @app.route("/api/tasks/verify-proof", methods=["POST"])
+@require_auth
 def verify_proof():
-    data = request.json
-    index = data.get("index")
+    user = request.current_user
+    data = request.json or {}
+    task_id = data.get("task_id")
     image_b64 = data.get("image")
     mime_type = data.get("mime_type", "image/jpeg")
 
-    if index is None or not (0 <= index < len(TASKS_DB)):
-        return jsonify({"error": "Task not found."}), 404
+    with get_db() as conn:
+        task = conn.execute("SELECT * FROM tasks WHERE id = ? AND company_id = ?", (task_id, str(user["company_id"]))).fetchone()
+        if not task:
+            return jsonify({"error": "Task not found."}), 404
 
-    task = TASKS_DB[index]
-    if not client:
-        task["status"] = "Completed"
-        task["ai_comment"] = "Simulated verification (API key missing)."
-        save_db("tasks.json", TASKS_DB)
-        return jsonify({"success": True, "status": "Completed"})
+        if not client:
+            conn.execute("UPDATE tasks SET status = 'Completed', ai_comment = 'Simulated verification (API key missing).' WHERE id = ?", (task_id,))
+            return jsonify({"success": True, "status": "Completed"})
 
-    try:
-        image_bytes = base64.b64decode(image_b64)
-        prompt = (
-            f"Evaluate if the uploaded image proves task completion for: '{task['title']}'."
-            " Respond with your evaluation clearly stating whether it is Completed or Failed, followed by a brief reason."
-        )
-        
-        response = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                prompt,
-            ],
-        )
-        ai_text = response.text or "Completed successfully."
-        
-        task["status"] = "Completed" if "Completed" in ai_text or "pass" in ai_text.lower() else "Failed"
-        task["ai_comment"] = ai_text
-        save_db("tasks.json", TASKS_DB)
+        try:
+            image_bytes = base64.b64decode(image_b64)
+            prompt = (
+                f"Evaluate if the uploaded image proves task completion for: '{task['title']}'."
+                " Respond with your evaluation clearly stating whether it is Completed or Failed, followed by a brief reason."
+            )
+            response = client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                    prompt,
+                ],
+            )
+            ai_text = response.text or "Completed successfully."
+            status = "Completed" if "Completed" in ai_text or "pass" in ai_text.lower() else "Failed"
 
-        HISTORY_DB.insert(
-            0,
-            {
-                "company_id": task.get("company_id"),
-                "action": f"AI verified task '{task['title']}' for {task['assigned_to']}: {task['status']}",
-                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            },
-        )
-        save_db("history.json", HISTORY_DB)
-        return jsonify({"success": True, "status": task["status"], "comment": ai_text})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+            conn.execute("UPDATE tasks SET status = ?, ai_comment = ? WHERE id = ?", (status, ai_text, task_id))
+            log_history(conn, user["company_id"], f"AI verified task '{task['title']}' for {task['assigned_to']}: {status}")
+            return jsonify({"success": True, "status": status, "comment": ai_text})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/chat", methods=["GET", "POST"])
+@require_auth
 def workspace_chat():
-    if request.method == "POST":
-        data = request.json
-        company_id = data.get("company_id")
-        text = (data.get("text") or "").strip()
-        if not text:
-            return jsonify({"error": "Message text cannot be blank."}), 400
+    user = request.current_user
+    if user["status"] != "Approved":
+        return jsonify({"error": "Account pending approval."}), 403
 
-        MESSAGES_DB.append({
-            "company_id": company_id,
-            "sender": data.get("sender"),
-            "text": text,
-            "time": datetime.datetime.now().strftime("%H:%M"),
-        })
-        save_db("messages.json", MESSAGES_DB)
-        return jsonify({"success": True})
-    else:
-        company_id = request.args.get("company_id")
-        filtered_msgs = [m for m in MESSAGES_DB if str(m.get("company_id")) == str(company_id)]
-        return jsonify({"messages": filtered_msgs})
+    company_id = str(user["company_id"])
+    with get_db() as conn:
+        if request.method == "POST":
+            text = ((request.json or {}).get("text") or "").strip()
+            if not text:
+                return jsonify({"error": "Message text cannot be blank."}), 400
+            conn.execute(
+                "INSERT INTO messages (company_id, sender, text, time) VALUES (?, ?, ?, ?)",
+                (company_id, user["name"], text, datetime.datetime.now().strftime("%H:%M"))
+            )
+            return jsonify({"success": True})
+        else:
+            msgs = [dict(r) for r in conn.execute("SELECT sender, text, time FROM messages WHERE company_id = ? ORDER BY id ASC LIMIT 200", (company_id,)).fetchall()]
+            return jsonify({"messages": msgs})
 
 
+# --- Protected Admin Endpoints ---
 @app.route("/api/admin/pending-users", methods=["GET"])
+@require_auth
 def get_pending_users():
-    company_id = request.args.get("company_id")
-    return jsonify({
-        "pending_users": [u for u in PENDING_USERS_DB.values() if str(u.get("company_id")) == str(company_id)]
-    })
+    user = request.current_user
+    if not has_permission(user, "handle_approvals"):
+        return jsonify({"error": "Permission denied."}), 403
+
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM users WHERE company_id = ? AND status = 'Pending'", (str(user["company_id"]),)).fetchall()
+        return jsonify({"pending_users": [serialize_user(r) for r in rows]})
 
 
 @app.route("/api/admin/approve-user", methods=["POST"])
+@require_auth
 def approve_user():
-    data = request.json
-    email = data.get("email")
-    stance = (data.get("stance") or "").strip()
+    admin = request.current_user
+    if not has_permission(admin, "handle_approvals"):
+        return jsonify({"error": "Permission denied."}), 403
+
+    data = request.json or {}
+    email = (data.get("email") or "").strip().lower()
+    stance = (data.get("stance") or "").strip() or "Team Member"
     permissions = data.get("permissions", [])
 
-    if not stance:
-        stance = "Team Member"
+    with get_db() as conn:
+        target = conn.execute("SELECT * FROM users WHERE email = ? AND company_id = ? AND status = 'Pending'", (email, str(admin["company_id"]))).fetchone()
+        if not target:
+            return jsonify({"error": "Pending user not found in your workspace."}), 404
 
-    if email in PENDING_USERS_DB:
-        user = PENDING_USERS_DB.pop(email)
-        user["status"] = "Approved"
-        user["stance"] = stance
-        user["permissions"] = permissions
-        USERS_DB[email] = user
-        save_db("pending_users.json", PENDING_USERS_DB)
-        save_db("users.json", USERS_DB)
-        
-        HISTORY_DB.insert(
-            0,
-            {
-                "company_id": user.get("company_id"),
-                "action": f"Employee {user['name']} approved with stance '{stance}'",
-                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            },
+        conn.execute(
+            "UPDATE users SET status = 'Approved', stance = ?, permissions = ? WHERE email = ?",
+            (stance, json.dumps(permissions), email)
         )
-        save_db("history.json", HISTORY_DB)
+        log_history(conn, admin["company_id"], f"Employee {target['name']} approved with stance '{stance}' by {admin['name']}")
         return jsonify({"success": True})
-    return jsonify({"error": "User not found."}), 404
 
 
 @app.route("/api/admin/employees-list", methods=["GET"])
+@require_auth
 def get_employees_list():
-    company_id = request.args.get("company_id")
-    return jsonify({
-        "employees": [
-            {
-                "name": u.get("name"), 
-                "email": u.get("email"), 
-                "role": u.get("role"), 
-                "stance": u.get("stance"),
-                "permissions": u.get("permissions", [])
-            }
-            for u in USERS_DB.values()
-            if str(u.get("company_id")) == str(company_id) and u.get("status") == "Approved"
-        ]
-    })
+    user = request.current_user
+    if user["status"] != "Approved":
+        return jsonify({"error": "Unauthorized."}), 403
+
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM users WHERE company_id = ? AND status = 'Approved'", (str(user["company_id"]),)).fetchall()
+        return jsonify({"employees": [serialize_user(r) for r in rows]})
 
 
 @app.route("/api/admin/kick-employee", methods=["POST"])
+@require_auth
 def kick_employee():
-    data = request.json
-    email = data.get("email")
-    company_id = data.get("company_id")
-    if email in USERS_DB:
-        user = USERS_DB.pop(email)
-        save_db("users.json", USERS_DB)
-        HISTORY_DB.insert(
-            0,
-            {
-                "company_id": company_id,
-                "action": f"Employee {user.get('name')} was kicked from the workspace",
-                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            },
-        )
-        save_db("history.json", HISTORY_DB)
+    admin = request.current_user
+    if not has_permission(admin, "kick_employees"):
+        return jsonify({"error": "Permission denied."}), 403
+
+    email = ((request.json or {}).get("email") or "").strip().lower()
+    with get_db() as conn:
+        target = conn.execute("SELECT * FROM users WHERE email = ? AND company_id = ?", (email, str(admin["company_id"]))).fetchone()
+        if not target:
+            return jsonify({"error": "Employee not found in your workspace."}), 404
+        if target["role"] == "CEO":
+            return jsonify({"error": "Cannot kick the workspace CEO."}), 400
+
+        conn.execute("DELETE FROM users WHERE email = ?", (email,))
+        log_history(conn, admin["company_id"], f"Employee {target['name']} was kicked from the workspace by {admin['name']}")
         return jsonify({"success": True})
-    return jsonify({"error": "Employee not found."}), 404
 
 
 @app.route("/api/admin/update-company", methods=["POST"])
+@require_auth
 def update_company():
-    data = request.json
-    company_id = data.get("company_id")
-    new_name = (data.get("company_name") or "").strip()
-    
+    admin = request.current_user
+    if admin["role"] != "CEO":
+        return jsonify({"error": "Only the CEO can rename the workspace."}), 403
+
+    new_name = ((request.json or {}).get("company_name") or "").strip()
     if not new_name:
         return jsonify({"error": "Company name cannot be blank."}), 400
 
-    for u in USERS_DB.values():
-        if str(u.get("company_id")) == str(company_id):
-            u["company_name"] = new_name
-    save_db("users.json", USERS_DB)
-    HISTORY_DB.insert(
-        0,
-        {
-            "company_id": company_id,
-            "action": f"Workspace company name updated to '{new_name}'",
-            "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        },
-    )
-    save_db("history.json", HISTORY_DB)
-    return jsonify({"success": True})
+    with get_db() as conn:
+        conn.execute("UPDATE users SET company_name = ? WHERE company_id = ?", (new_name, str(admin["company_id"])))
+        log_history(conn, admin["company_id"], f"Workspace company name updated to '{new_name}'")
+        return jsonify({"success": True})
 
 
 if __name__ == "__main__":
