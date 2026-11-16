@@ -235,9 +235,9 @@ HTML_TEMPLATE = """
         tr:hover td { background: rgba(255,255,255,0.015); }
         th { background: var(--input-bg); color: var(--subtext); font-weight: 600; text-transform: uppercase; font-size: 0.75em; letter-spacing: 0.05em; }
         
-        .badge-done { background: rgba(5, 150, 105, 0.15); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; animation: fadeInScale 0.3s var(--ease-out-expo); }
-        .badge-pending { background: rgba(217, 119, 6, 0.15); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; animation: fadeInScale 0.3s var(--ease-out-expo); }
-        .badge-failed { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; animation: fadeInScale 0.3s var(--ease-out-expo); }
+        .badge-done { background: rgba(5, 150, 105, 0.15); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+        .badge-pending { background: rgba(217, 119, 6, 0.15); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+        .badge-failed { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
         
         @keyframes pulseGlow {
             0% { transform: scale(0.92); opacity: 0.8; }
@@ -265,6 +265,22 @@ HTML_TEMPLATE = """
         h2, h3, h4 { margin-top: 0; font-weight: 600; letter-spacing: -0.01em; }
         a { color: var(--accent); text-decoration: none; transition: color 0.15s; }
         a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+        /* Kanban Board Styles */
+        .kanban-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px; }
+        .kanban-col { background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px; min-height: 450px; display: flex; flex-direction: column; }
+        .kanban-col-header { font-weight: 600; font-size: 0.9em; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--border-color); color: var(--subtext); text-transform: uppercase; letter-spacing: 0.05em; }
+        .kanban-cards { flex: 1; display: flex; flex-direction: column; gap: 14px; min-height: 100px; }
+        .kanban-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; cursor: grab; transition: all 0.2s var(--ease-out-expo); }
+        .kanban-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .kanban-card:active { cursor: grabbing; }
+
+        /* Command Palette Modal */
+        #cmdPaletteModal { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.8); backdrop-filter: blur(8px); z-index: 99999; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; opacity: 0; pointer-events: none; transition: opacity 0.2s var(--ease-out-expo); }
+        #cmdPaletteModal.active { opacity: 1; pointer-events: auto; }
+        .cmd-box { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; width: 100%; max-width: 600px; box-shadow: 0 25px 60px rgba(0,0,0,0.7); overflow: hidden; animation: fadeInScale 0.3s var(--ease-out-expo); }
+        .cmd-item { padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.15s; font-size: 0.9em; color: var(--text-color); border-bottom: 1px solid var(--border-color); }
+        .cmd-item:hover, .cmd-item.selected { background: rgba(94, 106, 210, 0.15); color: var(--accent); }
     </style>
 </head>
 <body>
@@ -272,6 +288,20 @@ HTML_TEMPLATE = """
     <div id="globalLoader">
         <div class="spinner-ring"></div>
         <div style="font-size:0.9em; font-weight:500; color:var(--text-color); letter-spacing:-0.01em;" id="loaderText">Authenticating with Workspace...</div>
+    </div>
+
+    <!-- Command Palette Modal (Ctrl+K) -->
+    <div id="cmdPaletteModal" onclick="if(event.target === this) toggleCommandPalette()">
+        <div class="cmd-box">
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 12px;">
+                <span style="color: var(--accent); font-weight: bold;">⌘</span>
+                <input type="text" id="cmdInput" placeholder="Type a command or search actions (e.g. Assigned Tasks, Theme, Create Task)..." oninput="filterCommands()" style="margin: 0; border: none; background: transparent; font-size: 1em;" autofocus>
+                <span style="font-size: 0.75em; background: var(--input-bg); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; color: var(--subtext);">ESC</span>
+            </div>
+            <div id="cmdResultsList" style="max-height: 350px; overflow-y: auto;">
+                <!-- Dynamically populated command items -->
+            </div>
+        </div>
     </div>
 
     <!-- Workspace ID Modal for Social Logins -->
@@ -355,7 +385,7 @@ HTML_TEMPLATE = """
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
                 <button onclick="nextSignupStep()" style="margin-top:12px;">Continue to Workspace ID</button>
-                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="#" onclick="toggleAuth('login')">Sign in</a></p>
+                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="#" onclick="toggleAuth('login')">Sign up</a></p>
             </div>
 
             <div id="signupCompanyModal" class="hidden">
@@ -401,16 +431,82 @@ HTML_TEMPLATE = """
                 <div style="font-size:0.85em; color:var(--text-color); font-weight:600;" id="sidebarUserName">User</div>
                 <div style="font-size:0.75em; color:var(--subtext); margin-bottom:4px;" id="sidebarUserRole">Role</div>
                 <div style="font-size:0.75em; color:var(--accent); margin-bottom:14px;" id="sidebarUserStance">Stance</div>
+                <button onclick="toggleCommandPalette()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--subtext); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">🔍 Command Palette (⌘K)</button>
                 <button onclick="logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
             </div>
         </div>
 
         <div class="main-content">
+            <!-- Tasks Section with Filters & Kanban Toggle -->
             <div id="tasksSection" class="section-view">
                 <div class="card">
-                    <h2>Assigned Tasks & Routines</h2>
-                    <p style="font-size:0.9em; color:var(--subtext);">Review your assigned tasks and upload image proofs for instant AI verification.</p>
-                    <div id="myTasksList" style="margin-top:20px;">No tasks found.</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+                        <div>
+                            <h2>Assigned Tasks & Routines</h2>
+                            <p style="font-size:0.9em; color:var(--subtext); margin:0;">Filter, sort, view Kanban board, and submit proofs for AI verification.</p>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="viewListBtn" onclick="setTaskView('list')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--accent);">📋 List View</button>
+                            <button id="viewKanbanBtn" onclick="setTaskView('kanban')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); box-shadow: none;">📊 Kanban Board</button>
+                        </div>
+                    </div>
+
+                    <!-- Advanced Filter & Search Bar -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: var(--input-bg); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 20px;">
+                        <div>
+                            <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Search Keywords</label>
+                            <input type="text" id="filterSearch" placeholder="Search tasks..." oninput="applyFilters()" style="margin: 4px 0 0 0; padding: 8px 12px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Filter Status</label>
+                            <select id="filterStatus" onchange="applyFilters()" style="margin: 4px 0 0 0; padding: 8px 12px;">
+                                <option value="">All Statuses</option>
+                                <option value="Pending">Pending Proof</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Failed">Failed</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Filter Priority</label>
+                            <select id="filterPriority" onchange="applyFilters()" style="margin: 4px 0 0 0; padding: 8px 12px;">
+                                <option value="">All Priorities</option>
+                                <option value="High">High</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Sort By</label>
+                            <select id="sortBy" onchange="applyFilters()" style="margin: 4px 0 0 0; padding: 8px 12px;">
+                                <option value="id_desc">Newest First</option>
+                                <option value="priority">Priority (High → Low)</option>
+                                <option value="deadline">Deadline</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Container for List View -->
+                    <div id="taskListViewContainer">
+                        <div id="myTasksList">No tasks found.</div>
+                    </div>
+
+                    <!-- Container for Kanban View -->
+                    <div id="taskKanbanViewContainer" class="hidden">
+                        <div class="kanban-grid">
+                            <div class="kanban-col" ondragover="allowDrop(event)" ondrop="dropTask(event, 'Pending')">
+                                <div class="kanban-col-header">⏳ Pending Proof <span id="countPending" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
+                                <div class="kanban-cards" id="kanbanPending"></div>
+                            </div>
+                            <div class="kanban-col" ondragover="allowDrop(event)" ondrop="dropTask(event, 'Completed')">
+                                <div class="kanban-col-header">✅ Completed <span id="countCompleted" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
+                                <div class="kanban-cards" id="kanbanCompleted"></div>
+                            </div>
+                            <div class="kanban-col" ondragover="allowDrop(event)" ondrop="dropTask(event, 'Failed')">
+                                <div class="kanban-col-header">❌ Failed <span id="countFailed" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
+                                <div class="kanban-cards" id="kanbanFailed"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -556,8 +652,20 @@ HTML_TEMPLATE = """
         let approvalCheckInterval = null;
         let pendingOAuthData = null;
         let selectedProofFiles = {};
+        let cachedTasks = [];
+        let currentTaskView = 'list';
 
-        // Authenticated fetch wrapper
+        // Command Palette Command definitions
+        const commandList = [
+            { title: "📋 Go to Assigned Tasks", action: () => { switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } },
+            { title: "🔄 Go to Daily Routines", action: () => { switchSection('routinesSection', document.querySelectorAll('.sidebar-menu button')[1]); closeCommandPalette(); } },
+            { title: "💬 Go to Team Chat", action: () => { switchSection('chatSection', document.getElementById('navChat')); closeCommandPalette(); } },
+            { title: "⚙ Go to Settings", action: () => { switchSection('settingsSection', document.querySelectorAll('.sidebar-menu button')[document.querySelectorAll('.sidebar-menu button').length - 1]); closeCommandPalette(); } },
+            { title: "🌓 Toggle Dark / Light Theme", action: () => { toggleTheme(); closeCommandPalette(); } },
+            { title: "📊 Switch to Kanban Board View", action: () => { setTaskView('kanban'); switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } },
+            { title: "📋 Switch to List View", action: () => { setTaskView('list'); switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } }
+        ];
+
         async function apiFetch(url, options = {}) {
             options.headers = options.headers || {};
             if (authToken) {
@@ -574,6 +682,24 @@ HTML_TEMPLATE = """
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
             document.getElementById('settingsRefreshRate').value = savedRefreshRate;
             
+            // Read URL query params for initial filters
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('search')) document.getElementById('filterSearch').value = urlParams.get('search');
+            if (urlParams.get('status')) document.getElementById('filterStatus').value = urlParams.get('status');
+            if (urlParams.get('priority')) document.getElementById('filterPriority').value = urlParams.get('priority');
+            if (urlParams.get('sort')) document.getElementById('sortBy').value = urlParams.get('sort');
+            if (urlParams.get('view') === 'kanban') setTaskView('kanban');
+
+            window.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                    e.preventDefault();
+                    toggleCommandPalette();
+                } else if (e.key === 'Escape') {
+                    closeCommandPalette();
+                    closeSocialWorkspaceModal();
+                }
+            });
+
             if (typeof google !== 'undefined' && GOOGLE_CLIENT_ID) {
                 google.accounts.id.initialize({
                     client_id: GOOGLE_CLIENT_ID,
@@ -599,6 +725,133 @@ HTML_TEMPLATE = """
                 logout();
             }
         };
+
+        // --- Command Palette Functions ---
+        function toggleCommandPalette() {
+            let modal = document.getElementById('cmdPaletteModal');
+            modal.classList.toggle('active');
+            if (modal.classList.contains('active')) {
+                document.getElementById('cmdInput').value = '';
+                filterCommands();
+                document.getElementById('cmdInput').focus();
+            }
+        }
+
+        function closeCommandPalette() {
+            document.getElementById('cmdPaletteModal').classList.remove('active');
+        }
+
+        function filterCommands() {
+            let query = document.getElementById('cmdInput').value.toLowerCase();
+            let filtered = commandList.filter(c => c.title.toLowerCase().includes(query));
+            let listEl = document.getElementById('cmdResultsList');
+            if (filtered.length === 0) {
+                listEl.innerHTML = `<div style="padding:16px; text-align:center; color:var(--subtext);">No matching actions found.</div>`;
+                return;
+            }
+            listEl.innerHTML = filtered.map((cmd, idx) => `
+                <div class="cmd-item ${idx===0?'selected':''}" onclick="executeCommand(${commandList.indexOf(cmd)})">
+                    <span>${cmd.title}</span>
+                    <span style="font-size:0.75em; color:var(--subtext);">Press Enter ↵</span>
+                </div>
+            `).join('');
+        }
+
+        function executeCommand(index) {
+            if (commandList[index]) {
+                commandList[index].action();
+            }
+        }
+
+        document.getElementById('cmdInput')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                let selected = document.querySelector('.cmd-item.selected');
+                if (selected) selected.click();
+            }
+        });
+
+        // --- Task View Toggles (List vs Kanban) ---
+        function setTaskView(view) {
+            currentTaskView = view;
+            let listBtn = document.getElementById('viewListBtn');
+            let kanbanBtn = document.getElementById('viewKanbanBtn');
+            let listContainer = document.getElementById('taskListViewContainer');
+            let kanbanContainer = document.getElementById('taskKanbanViewContainer');
+
+            if (view === 'kanban') {
+                kanbanBtn.style.background = 'var(--accent)';
+                kanbanBtn.style.color = '#fff';
+                kanbanBtn.style.border = 'none';
+                listBtn.style.background = 'var(--input-bg)';
+                listBtn.style.color = 'var(--text-color)';
+                listBtn.style.border = '1px solid var(--border-color)';
+                listContainer.classList.add('hidden');
+                kanbanContainer.classList.remove('hidden');
+            } else {
+                listBtn.style.background = 'var(--accent)';
+                listBtn.style.color = '#fff';
+                listBtn.style.border = 'none';
+                kanbanBtn.style.background = 'var(--input-bg)';
+                kanbanBtn.style.color = 'var(--text-color)';
+                kanbanBtn.style.border = '1px solid var(--border-color)';
+                kanbanContainer.classList.add('hidden');
+                listContainer.classList.remove('hidden');
+            }
+            updateURLParams();
+            renderTasks(cachedTasks);
+        }
+
+        // --- Drag & Drop Kanban Handlers ---
+        function allowDrop(ev) {
+            ev.preventDefault();
+        }
+
+        function dragTaskStart(ev, taskId) {
+            ev.dataTransfer.setData("text/plain", taskId);
+        }
+
+        async function dropTask(ev, newStatus) {
+            ev.preventDefault();
+            let taskId = ev.dataTransfer.getData("text/plain");
+            if (!taskId) return;
+            showLoader("Updating task status...");
+            let res = await apiFetch('/api/tasks/update-status', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ task_id: taskId, status: newStatus })
+            });
+            hideLoader();
+            if (res.ok) {
+                showToast(`Task moved to ${newStatus}!`);
+                loadDashboardData();
+            } else {
+                let err = await res.json();
+                showToast(err.error || "Failed to update status", "error");
+            }
+        }
+
+        // --- Advanced Filtering & Sorting ---
+        function applyFilters() {
+            updateURLParams();
+            renderTasks(cachedTasks);
+        }
+
+        function updateURLParams() {
+            let search = document.getElementById('filterSearch').value;
+            let status = document.getElementById('filterStatus').value;
+            let priority = document.getElementById('filterPriority').value;
+            let sort = document.getElementById('sortBy').value;
+
+            let params = new URLSearchParams();
+            if (search) params.set('search', search);
+            if (status) params.set('status', status);
+            if (priority) params.set('priority', priority);
+            if (sort && sort !== 'id_desc') params.set('sort', sort);
+            if (currentTaskView === 'kanban') params.set('view', 'kanban');
+
+            let newRelativePathQuery = window.location.pathname + '?' + params.toString();
+            history.replaceState(null, '', newRelativePathQuery === window.location.pathname ? '?' : newRelativePathQuery);
+        }
 
         function showLoader(text = "Authenticating with Workspace...") {
             document.getElementById('loaderText').innerText = text;
@@ -755,7 +1008,7 @@ HTML_TEMPLATE = """
             document.querySelectorAll('.section-view').forEach(el => el.classList.add('hidden'));
             document.getElementById(sectionId).classList.remove('hidden');
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-            btnElement.classList.add('active');
+            if (btnElement) btnElement.classList.add('active');
         }
 
         function toggleAuth(formType) {
@@ -1158,45 +1411,8 @@ HTML_TEMPLATE = """
             if (!res.ok) return;
             let data = await res.json();
             
-            let tasksContainer = document.getElementById('myTasksList');
-            let userTasks = data.tasks.filter(t => currentUser.role === 'CEO' || t.assigned_to === currentUser.name);
-            
-            if(userTasks.length === 0) {
-                tasksContainer.innerHTML = "<span style='color:var(--subtext);'>No tasks found.</span>";
-            } else {
-                tasksContainer.innerHTML = userTasks.map(t => {
-                    let statusBadge = t.status === 'Completed' ? '<span class="badge-done"><span class="pulsing-dot"></span>Completed</span>' : 
-                                      t.status === 'Failed' ? '<span class="badge-failed"><span class="pulsing-dot"></span>Failed</span>' : 
-                                      '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Proof</span>';
-                    
-                    let actionHtml = '';
-                    if(currentUser.role !== 'CEO') {
-                        actionHtml = `
-                            <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                                <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
-                                <input type="file" id="proofFile_${t.id}" accept="image/*" style="margin-bottom:10px; padding:8px;" onchange="handleFileSelect(${t.id}, this)">
-                                <button onclick="submitProof(${t.id})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
-                            </div>
-                        `;
-                    }
-
-                    return `
-                        <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
-                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                                <div>
-                                    <strong style="font-size:1.1em;">${t.title}</strong>
-                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:6px;">
-                                        Assigned to: ${t.assigned_to} • Priority: ${t.priority} • Deadline: ${t.deadline || 'None'}
-                                    </div>
-                                </div>
-                                <div>${statusBadge}</div>
-                            </div>
-                            ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:10px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${t.ai_comment}</div>` : ''}
-                            ${actionHtml}
-                        </div>
-                    `;
-                }).join('');
-            }
+            cachedTasks = data.tasks.filter(t => currentUser.role === 'CEO' || t.assigned_to === currentUser.name);
+            renderTasks(cachedTasks);
 
             let routinesContainer = document.getElementById('dailyRoutinesList');
             let configRoutinesContainer = document.getElementById('configRoutinesList');
@@ -1236,6 +1452,111 @@ HTML_TEMPLATE = """
             let historyBody = document.getElementById('historyTableBody');
             historyBody.innerHTML = data.history.length === 0 ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>` : 
                 data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
+        }
+
+        // --- Render Filtered & Sorted Tasks (List & Kanban) ---
+        function renderTasks(tasks) {
+            let searchTerm = document.getElementById('filterSearch').value.toLowerCase();
+            let statusFilter = document.getElementById('filterStatus').value;
+            let priorityFilter = document.getElementById('filterPriority').value;
+            let sortBy = document.getElementById('sortBy').value;
+
+            let filtered = tasks.filter(t => {
+                let matchesSearch = t.title.toLowerCase().includes(searchTerm) || t.assigned_to.toLowerCase().includes(searchTerm);
+                let matchesStatus = !statusFilter || t.status === statusFilter;
+                let matchesPriority = !priorityFilter || t.priority === priorityFilter;
+                return matchesSearch && matchesStatus && matchesPriority;
+            });
+
+            // Sorting
+            filtered.sort((a, b) => {
+                if (sortBy === 'priority') {
+                    const rank = { 'High': 3, 'Medium': 2, 'Low': 1 };
+                    return (rank[b.priority] || 2) - (rank[a.priority] || 2);
+                } else if (sortBy === 'deadline') {
+                    return (a.deadline || '').localeCompare(b.deadline || '');
+                } else {
+                    return b.id - a.id;
+                }
+            });
+
+            if (currentTaskView === 'kanban') {
+                renderKanbanView(filtered);
+            } else {
+                renderListView(filtered);
+            }
+        }
+
+        function renderListView(tasks) {
+            let container = document.getElementById('myTasksList');
+            if (tasks.length === 0) {
+                container.innerHTML = "<span style='color:var(--subtext);'>No tasks match your filters.</span>";
+                return;
+            }
+            container.innerHTML = tasks.map(t => {
+                let statusBadge = t.status === 'Completed' ? '<span class="badge-done"><span class="pulsing-dot"></span>Completed</span>' : 
+                                  t.status === 'Failed' ? '<span class="badge-failed"><span class="pulsing-dot"></span>Failed</span>' : 
+                                  '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Proof</span>';
+                
+                let actionHtml = '';
+                if(currentUser.role !== 'CEO') {
+                    actionHtml = `
+                        <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                            <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
+                            <input type="file" id="proofFile_${t.id}" accept="image/*" style="margin-bottom:10px; padding:8px;" onchange="handleFileSelect(${t.id}, this)">
+                            <button onclick="submitProof(${t.id})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
+                        </div>
+                    `;
+                }
+
+                return `
+                    <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                            <div>
+                                <strong style="font-size:1.1em;">${t.title}</strong>
+                                <div style="font-size:0.85em; color:var(--subtext); margin-top:6px;">
+                                    Assigned to: ${t.assigned_to} • Priority: ${t.priority} • Deadline: ${t.deadline || 'None'}
+                                </div>
+                            </div>
+                            <div>${statusBadge}</div>
+                        </div>
+                        ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:10px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${t.ai_comment}</div>` : ''}
+                        ${actionHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderKanbanView(tasks) {
+            let pendingTasks = tasks.filter(t => t.status === 'Pending');
+            let completedTasks = tasks.filter(t => t.status === 'Completed');
+            let failedTasks = tasks.filter(t => t.status === 'Failed');
+
+            document.getElementById('countPending').innerText = pendingTasks.length;
+            document.getElementById('countCompleted').innerText = completedTasks.length;
+            document.getElementById('countFailed').innerText = failedTasks.length;
+
+            document.getElementById('kanbanPending').innerHTML = pendingTasks.length === 0 ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>' :
+                pendingTasks.map(t => kanbanCardHtml(t)).join('');
+            document.getElementById('kanbanCompleted').innerHTML = completedTasks.length === 0 ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>' :
+                completedTasks.map(t => kanbanCardHtml(t)).join('');
+            document.getElementById('kanbanFailed').innerHTML = failedTasks.length === 0 ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>' :
+                failedTasks.map(t => kanbanCardHtml(t)).join('');
+        }
+
+        function kanbanCardHtml(t) {
+            return `
+                <div class="kanban-card" draggable="true" ondragstart="dragTaskStart(event, ${t.id})">
+                    <div style="font-weight:600; font-size:0.95em; margin-bottom:6px;">${t.title}</div>
+                    <div style="font-size:0.75em; color:var(--subtext); margin-bottom:8px;">Assigned: ${t.assigned_to} • ${t.priority}</div>
+                    ${currentUser.role !== 'CEO' ? `
+                        <div style="margin-top:8px; border-top:1px solid var(--border-color); padding-top:8px;">
+                            <input type="file" id="proofFile_${t.id}" accept="image/*" style="font-size:0.75em; margin-bottom:6px; padding:4px;" onchange="handleFileSelect(${t.id}, this)">
+                            <button onclick="submitProof(${t.id})" style="background:#059669; padding:6px 12px; font-size:0.8em; width:100%;">Submit Proof</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
         }
 
         async function submitProof(taskId) {
@@ -1558,6 +1879,27 @@ def add_task():
         )
         log_history(conn, company_id, f"Task '{title}' assigned to {assigned_to} (Deadline: {deadline or 'None'})")
 
+    return jsonify({"success": True})
+
+
+@app.route("/api/tasks/update-status", methods=["POST"])
+@require_auth
+def update_task_status():
+    user = request.current_user
+    data = request.json or {}
+    task_id = data.get("task_id")
+    new_status = data.get("status")
+
+    if new_status not in ["Pending", "Completed", "Failed"]:
+        return jsonify({"error": "Invalid status."}), 400
+
+    with get_db() as conn:
+        task = conn.execute("SELECT * FROM tasks WHERE id = ? AND company_id = ?", (task_id, str(user["company_id"]))).fetchone()
+        if not task:
+            return jsonify({"error": "Task not found."}), 404
+
+        conn.execute("UPDATE tasks SET status = ? WHERE id = ?", (new_status, task_id))
+        log_history(conn, user["company_id"], f"Task '{task['title']}' status changed to {new_status} by {user['name']}")
     return jsonify({"success": True})
 
 
