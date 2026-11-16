@@ -865,7 +865,6 @@ HTML_TEMPLATE = """
                     targetUrl = `https://app.fastmail.com/mail/compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
                     break;
                 default:
-                    // Universal mailto fallback opening default desktop mail client or web handler
                     targetUrl = `mailto:taskofeedback@gmail.com?subject=${subject}&body=${body}`;
                     break;
             }
@@ -2258,7 +2257,7 @@ def update_company():
     with get_db() as conn:
         conn.execute("UPDATE users SET company_name = ? WHERE company_id = ?", (new_name, str(admin["company_id"])))
         log_history(conn, admin["company_id"], f"Workspace company name updated to '{new_name}'")
-        return jsonify({"success": "True"})
+        return jsonify({"success": True})
 
 
 if __name__ == "__main__":
