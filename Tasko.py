@@ -8,6 +8,7 @@ import sqlite3
 from functools import wraps
 from flask import Flask, jsonify, request, render_template, render_template_string, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
+from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 from google.oauth2 import id_token as google_id_token
@@ -24,6 +25,11 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "com.tasko.workspace.app")
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+# --- Structured AI Output Pydantic Schema ---
+class TaskProofEvaluation(BaseModel):
+    passed: bool = Field(description="True if the image genuinely fulfills the task requirements, False otherwise.")
+    reason: str = Field(description="A concise professional explanation for why the proof passed or failed.")
 
 # --- SQLite Persistent Storage Layer (Concurrency-Safe) ---
 DB_DIR = "tasko_data"
@@ -298,9 +304,7 @@ HTML_TEMPLATE = """
                 <input type="text" id="cmdInput" placeholder="Type a command or search actions (e.g. Assigned Tasks, Theme, Create Task)..." oninput="filterCommands()" style="margin: 0; border: none; background: transparent; font-size: 1em;" autofocus>
                 <span style="font-size: 0.75em; background: var(--input-bg); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; color: var(--subtext);">ESC</span>
             </div>
-            <div id="cmdResultsList" style="max-height: 350px; overflow-y: auto;">
-                <!-- Dynamically populated command items -->
-            </div>
+            <div id="cmdResultsList" style="max-height: 350px; overflow-y: auto;"></div>
         </div>
     </div>
 
@@ -437,7 +441,6 @@ HTML_TEMPLATE = """
         </div>
 
         <div class="main-content">
-            <!-- Tasks Section with Filters & Kanban Toggle -->
             <div id="tasksSection" class="section-view">
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
@@ -451,7 +454,6 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Advanced Filter & Search Bar -->
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: var(--input-bg); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 20px;">
                         <div>
                             <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Search Keywords</label>
@@ -485,12 +487,10 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Container for List View -->
                     <div id="taskListViewContainer">
                         <div id="myTasksList">No tasks found.</div>
                     </div>
 
-                    <!-- Container for Kanban View -->
                     <div id="taskKanbanViewContainer" class="hidden">
                         <div class="kanban-grid">
                             <div class="kanban-col" ondragover="allowDrop(event)" ondrop="dropTask(event, 'Pending')">
@@ -655,7 +655,6 @@ HTML_TEMPLATE = """
         let cachedTasks = [];
         let currentTaskView = 'list';
 
-        // Command Palette Command definitions
         const commandList = [
             { title: "📋 Go to Assigned Tasks", action: () => { switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } },
             { title: "🔄 Go to Daily Routines", action: () => { switchSection('routinesSection', document.querySelectorAll('.sidebar-menu button')[1]); closeCommandPalette(); } },
@@ -682,7 +681,6 @@ HTML_TEMPLATE = """
             if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
             document.getElementById('settingsRefreshRate').value = savedRefreshRate;
             
-            // Read URL query params for initial filters
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('search')) document.getElementById('filterSearch').value = urlParams.get('search');
             if (urlParams.get('status')) document.getElementById('filterStatus').value = urlParams.get('status');
@@ -726,7 +724,6 @@ HTML_TEMPLATE = """
             }
         };
 
-        // --- Command Palette Functions ---
         function toggleCommandPalette() {
             let modal = document.getElementById('cmdPaletteModal');
             modal.classList.toggle('active');
@@ -770,7 +767,6 @@ HTML_TEMPLATE = """
             }
         });
 
-        // --- Task View Toggles (List vs Kanban) ---
         function setTaskView(view) {
             currentTaskView = view;
             let listBtn = document.getElementById('viewListBtn');
@@ -801,7 +797,6 @@ HTML_TEMPLATE = """
             renderTasks(cachedTasks);
         }
 
-        // --- Drag & Drop Kanban Handlers ---
         function allowDrop(ev) {
             ev.preventDefault();
         }
@@ -830,7 +825,6 @@ HTML_TEMPLATE = """
             }
         }
 
-        // --- Advanced Filtering & Sorting ---
         function applyFilters() {
             updateURLParams();
             renderTasks(cachedTasks);
@@ -1454,7 +1448,6 @@ HTML_TEMPLATE = """
                 data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
         }
 
-        // --- Render Filtered & Sorted Tasks (List & Kanban) ---
         function renderTasks(tasks) {
             let searchTerm = document.getElementById('filterSearch').value.toLowerCase();
             let statusFilter = document.getElementById('filterStatus').value;
@@ -1468,7 +1461,6 @@ HTML_TEMPLATE = """
                 return matchesSearch && matchesStatus && matchesPriority;
             });
 
-            // Sorting
             filtered.sort((a, b) => {
                 if (sortBy === 'priority') {
                     const rank = { 'High': 3, 'Medium': 2, 'Low': 1 };
@@ -1545,11 +1537,12 @@ HTML_TEMPLATE = """
         }
 
         function kanbanCardHtml(t) {
+            let canDrag = currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('assign_tasks'));
             return `
-                <div class="kanban-card" draggable="true" ondragstart="dragTaskStart(event, ${t.id})">
+                <div class="kanban-card" ${canDrag ? 'draggable="true" ondragstart="dragTaskStart(event, ' + t.id + ')"' : ''}>
                     <div style="font-weight:600; font-size:0.95em; margin-bottom:6px;">${t.title}</div>
                     <div style="font-size:0.75em; color:var(--subtext); margin-bottom:8px;">Assigned: ${t.assigned_to} • ${t.priority}</div>
-                    ${currentUser.role !== 'CEO' ? `
+                    ${!canDrag && t.status === 'Pending' ? `
                         <div style="margin-top:8px; border-top:1px solid var(--border-color); padding-top:8px;">
                             <input type="file" id="proofFile_${t.id}" accept="image/*" style="font-size:0.75em; margin-bottom:6px; padding:4px;" onchange="handleFileSelect(${t.id}, this)">
                             <button onclick="submitProof(${t.id})" style="background:#059669; padding:6px 12px; font-size:0.8em; width:100%;">Submit Proof</button>
@@ -1886,6 +1879,10 @@ def add_task():
 @require_auth
 def update_task_status():
     user = request.current_user
+    # FIX 1: Enforce permission check so employees cannot drag-and-drop bypass AI proof
+    if not has_permission(user, "assign_tasks"):
+        return jsonify({"error": "Permission denied. Only managers or CEOs can manually override task statuses."}), 403
+
     data = request.json or {}
     task_id = data.get("task_id")
     new_status = data.get("status")
@@ -1899,7 +1896,7 @@ def update_task_status():
             return jsonify({"error": "Task not found."}), 404
 
         conn.execute("UPDATE tasks SET status = ? WHERE id = ?", (new_status, task_id))
-        log_history(conn, user["company_id"], f"Task '{task['title']}' status changed to {new_status} by {user['name']}")
+        log_history(conn, user["company_id"], f"Task '{task['title']}' status manually overridden to {new_status} by {user['name']}")
     return jsonify({"success": True})
 
 
@@ -1968,21 +1965,31 @@ def verify_proof():
             image_bytes = base64.b64decode(image_b64)
             prompt = (
                 f"Evaluate if the uploaded image proves task completion for: '{task['title']}'."
-                " Respond with your evaluation clearly stating whether it is Completed or Failed, followed by a brief reason."
+                " Analyze the image accurately and return a structured assessment."
             )
+            # FIX 2 & 3: Use valid model ID gemini-2.5-flash and Structured Outputs with response_schema
             response = client.models.generate_content(
-                model="gemini-3.8-flash",
+                model="gemini-2.5-flash",
                 contents=[
                     types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     prompt,
                 ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=TaskProofEvaluation,
+                ),
             )
-            ai_text = response.text or "Completed successfully."
-            status = "Completed" if "Completed" in ai_text or "pass" in ai_text.lower() else "Failed"
+            
+            evaluation = json.loads(response.text)
+            passed = evaluation.get("passed", False)
+            reason = evaluation.get("reason", "No evaluation reason provided.")
+            
+            status = "Completed" if passed else "Failed"
+            ai_comment = f"{'Passed' if passed else 'Failed'}: {reason}"
 
-            conn.execute("UPDATE tasks SET status = ?, ai_comment = ? WHERE id = ?", (status, ai_text, task_id))
+            conn.execute("UPDATE tasks SET status = ?, ai_comment = ? WHERE id = ?", (status, ai_comment, task_id))
             log_history(conn, user["company_id"], f"AI verified task '{task['title']}' for {task['assigned_to']}: {status}")
-            return jsonify({"success": True, "status": status, "comment": ai_text})
+            return jsonify({"success": True, "status": status, "comment": ai_comment})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
