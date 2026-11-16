@@ -445,7 +445,7 @@ HTML_TEMPLATE = """
                 <input type="email" id="loginEmail" placeholder="name@company.com">
                 <input type="password" id="loginPassword" placeholder="••••••••••••">
                 <button type="button" onclick="nextLoginStep()">Continue to Workspace ID</button>
-                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Don't have an account? <a href="javascript:void(0)" onclick="toggleAuth('signup')">Sign up</a></p>
+                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Don't have an account? <button type="button" onclick="window.toggleAuth('signup')" style="background:none; border:none; color:var(--accent); cursor:pointer; padding:0; font-size:1em; font-weight:500; text-decoration:underline; box-shadow:none; width:auto; display:inline;">Sign up</button></p>
             </div>
 
             <div id="loginCompanyModal" class="hidden">
@@ -485,7 +485,7 @@ HTML_TEMPLATE = """
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
                 <button type="button" onclick="window.nextSignupStep()" style="margin-top:12px;">Continue to Workspace ID</button>
-                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="javascript:void(0)" onclick="window.toggleAuth('login')">Sign in</a></p>
+                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <button type="button" onclick="window.toggleAuth('login')" style="background:none; border:none; color:var(--accent); cursor:pointer; padding:0; font-size:1em; font-weight:500; text-decoration:underline; box-shadow:none; width:auto; display:inline;">Sign in</button></p>
             </div>
 
             <div id="signupCompanyModal" class="hidden">
