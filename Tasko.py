@@ -288,6 +288,10 @@ HTML_TEMPLATE = """
         .cmd-box { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; width: 100%; max-width: 600px; box-shadow: 0 25px 60px rgba(0,0,0,0.7); overflow: hidden; animation: fadeInScale 0.3s var(--ease-out-expo); }
         .cmd-item { padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.15s; font-size: 0.9em; color: var(--text-color); border-bottom: 1px solid var(--border-color); }
         .cmd-item:hover, .cmd-item.selected { background: rgba(94, 106, 210, 0.15); color: var(--accent); }
+
+        /* Feedback Modal */
+        #feedbackModal { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(8px); z-index: 99999; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.2s var(--ease-out-expo); }
+        #feedbackModal.active { opacity: 1; pointer-events: auto; }
     </style>
 </head>
 <body>
@@ -295,6 +299,94 @@ HTML_TEMPLATE = """
     <div id="globalLoader">
         <div class="spinner-ring"></div>
         <div style="font-size:0.9em; font-weight:500; color:var(--text-color); letter-spacing:-0.01em;" id="loaderText">Authenticating with Workspace...</div>
+    </div>
+
+    <!-- Feedback Modal -->
+    <div id="feedbackModal" onclick="if(event.target === this) toggleFeedbackModal()">
+        <div class="card" style="width: 100%; max-width: 500px; margin: 0; max-height: 85vh; display: flex; flex-direction: column;">
+            <h3 style="margin-bottom: 6px;">💬 Send Workspace Feedback</h3>
+            <p style="font-size: 0.85em; color: var(--subtext); margin-bottom: 16px;">Select your preferred email platform or service to open a pre-filled draft to <b>taskofeedback@gmail.com</b>.</p>
+            
+            <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Choose Email Platform / Client</label>
+            <select id="feedbackPlatformSelect" style="margin-bottom: 16px;">
+                <optgroup label="Personal Email">
+                    <option value="gmail">Gmail</option>
+                    <option value="outlook">Microsoft Outlook</option>
+                    <option value="icloud">Apple iCloud Mail</option>
+                    <option value="yahoo">Yahoo Mail</option>
+                    <option value="proton">Proton Mail</option>
+                    <option value="tuta">Tuta</option>
+                    <option value="aol">AOL Mail</option>
+                    <option value="gmx">GMX Mail</option>
+                    <option value="mailcom">Mail.com</option>
+                    <option value="yandex">Yandex Mail</option>
+                    <option value="zoho_personal">Zoho Mail (Personal)</option>
+                    <option value="rediffmail">Rediffmail</option>
+                </optgroup>
+                <optgroup label="Business Email Hosting">
+                    <option value="google_workspace">Google Workspace</option>
+                    <option value="m365">Microsoft 365</option>
+                    <option value="zoho_business">Zoho Mail (Business)</option>
+                    <option value="titan">Titan</option>
+                    <option value="neo">Neo</option>
+                    <option value="fastmail">Fastmail</option>
+                    <option value="rackspace">Rackspace Email</option>
+                    <option value="proton_biz">Proton for Business</option>
+                    <option value="namecheap">Namecheap Private Email</option>
+                    <option value="hostinger">Hostinger Business Email</option>
+                </optgroup>
+                <optgroup label="Email Marketing & Newsletters">
+                    <option value="mailchimp">Mailchimp</option>
+                    <option value="klaviyo">Klaviyo</option>
+                    <option value="brevo">Brevo</option>
+                    <option value="activecampaign">ActiveCampaign</option>
+                    <option value="constantcontact">Constant Contact</option>
+                    <option value="mailerlite">MailerLite</option>
+                    <option value="kit">Kit (formerly ConvertKit)</option>
+                    <option value="beehiiv">Beehiiv</option>
+                    <option value="substack">Substack</option>
+                    <option value="omnisend">Omnisend</option>
+                    <option value="getresponse">GetResponse</option>
+                    <option value="hubspot">HubSpot Email Marketing</option>
+                    <option value="moosend">Moosend</option>
+                    <option value="emailoctopus">EmailOctopus</option>
+                    <option value="campaignmonitor">Campaign Monitor</option>
+                    <option value="aweber">AWeber</option>
+                    <option value="drip">Drip</option>
+                </optgroup>
+                <optgroup label="Email Clients & Unified Inbox Apps">
+                    <option value="thunderbird">Mozilla Thunderbird</option>
+                    <option value="apple_mail">Apple Mail</option>
+                    <option value="spark">Spark</option>
+                    <option value="shortwave">Shortwave</option>
+                    <option value="superhuman">Superhuman</option>
+                    <option value="emclient">eM Client</option>
+                    <option value="mailbird">Mailbird</option>
+                    <option value="mailspring">Mailspring</option>
+                    <option value="canary">Canary Mail</option>
+                    <option value="bluemail">BlueMail</option>
+                    <option value="edison">Edison Mail</option>
+                </optgroup>
+                <optgroup label="Transactional Email APIs">
+                    <option value="ses">Amazon SES</option>
+                    <option value="sendgrid">SendGrid</option>
+                    <option value="postmark">Postmark</option>
+                    <option value="mailgun">Mailgun</option>
+                    <option value="resend">Resend</option>
+                    <option value="brevo_smtp">Brevo SMTP</option>
+                    <option value="mailjet">Mailjet</option>
+                    <option value="zeptomail">ZeptoMail</option>
+                </optgroup>
+            </select>
+
+            <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Your Feedback Message</label>
+            <textarea id="feedbackText" rows="4" placeholder="Describe your feedback, feature request, or bug report here..." style="margin-bottom: 20px; resize: none;"></textarea>
+
+            <div style="display: flex; gap: 10px;">
+                <button onclick="toggleFeedbackModal()" style="background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); box-shadow: none;">Cancel</button>
+                <button onclick="submitFeedbackDraft()">Open Draft in Selected Platform</button>
+            </div>
+        </div>
     </div>
 
     <!-- Command Palette Modal (Ctrl+K) -->
@@ -436,6 +528,7 @@ HTML_TEMPLATE = """
                 <div style="font-size:0.85em; color:var(--text-color); font-weight:600;" id="sidebarUserName">User</div>
                 <div style="font-size:0.75em; color:var(--subtext); margin-bottom:4px;" id="sidebarUserRole">Role</div>
                 <div style="font-size:0.75em; color:var(--accent); margin-bottom:14px;" id="sidebarUserStance">Stance</div>
+                <button onclick="toggleFeedbackModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">💬 Send Feedback</button>
                 <button onclick="toggleCommandPalette()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--subtext); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">🔍 Command Palette (⌘K)</button>
                 <button onclick="logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
             </div>
@@ -656,7 +749,6 @@ HTML_TEMPLATE = """
         let cachedTasks = [];
         let currentTaskView = 'list';
 
-        // XSS Sanitizer Helper
         function escapeHtml(str) {
             if (!str) return '';
             return String(str)
@@ -668,6 +760,7 @@ HTML_TEMPLATE = """
         }
 
         const commandList = [
+            { title: "💬 Send Workspace Feedback", action: () => { toggleFeedbackModal(); closeCommandPalette(); } },
             { title: "📋 Go to Assigned Tasks", action: () => { switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } },
             { title: "🔄 Go to Daily Routines", action: () => { switchSection('routinesSection', document.querySelectorAll('.sidebar-menu button')[1]); closeCommandPalette(); } },
             { title: "💬 Go to Team Chat", action: () => { switchSection('chatSection', document.getElementById('navChat')); closeCommandPalette(); } },
@@ -707,6 +800,7 @@ HTML_TEMPLATE = """
                 } else if (e.key === 'Escape') {
                     closeCommandPalette();
                     closeSocialWorkspaceModal();
+                    document.getElementById('feedbackModal').classList.remove('active');
                 }
             });
 
@@ -735,6 +829,51 @@ HTML_TEMPLATE = """
                 logout();
             }
         };
+
+        function toggleFeedbackModal() {
+            document.getElementById('feedbackModal').classList.toggle('active');
+        }
+
+        function submitFeedbackDraft() {
+            let platform = document.getElementById('feedbackPlatformSelect').value;
+            let feedback = document.getElementById('feedbackText').value.trim();
+            let subject = encodeURIComponent("Tasko Workspace Feedback");
+            let body = encodeURIComponent(feedback || "Hello Tasko Team,\n\nHere is my feedback regarding the workspace:");
+
+            let targetUrl = "";
+            switch(platform) {
+                case 'gmail':
+                case 'google_workspace':
+                    targetUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=taskofeedback@gmail.com&su=${subject}&body=${body}`;
+                    break;
+                case 'outlook':
+                case 'm365':
+                case 'hotmail':
+                    targetUrl = `https://outlook.office.com/mail/deeplink/compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
+                    break;
+                case 'yahoo':
+                    targetUrl = `https://compose.mail.yahoo.com/?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
+                    break;
+                case 'aol':
+                    targetUrl = `https://mail.aol.com/webmail/compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
+                    break;
+                case 'zoho_personal':
+                case 'zoho_business':
+                    targetUrl = `https://mail.zoho.com/zm/#compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
+                    break;
+                case 'fastmail':
+                    targetUrl = `https://app.fastmail.com/mail/compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
+                    break;
+                default:
+                    // Universal mailto fallback opening default desktop mail client or web handler
+                    targetUrl = `mailto:taskofeedback@gmail.com?subject=${subject}&body=${body}`;
+                    break;
+            }
+
+            toggleFeedbackModal();
+            window.open(targetUrl, '_blank');
+            showToast("Opening draft in your selected email platform!");
+        }
 
         function toggleCommandPalette() {
             let modal = document.getElementById('cmdPaletteModal');
@@ -1950,7 +2089,6 @@ def complete_routine():
         if not routine:
             return jsonify({"error": "Routine not found."}), 404
 
-        # Enforce Routine Ownership Check
         if user["role"] != "CEO" and routine["assigned_to"] != user["name"] and not has_permission(user, "assign_tasks"):
             return jsonify({"error": "Permission denied. You can only complete your own daily routines."}), 403
 
@@ -2120,7 +2258,7 @@ def update_company():
     with get_db() as conn:
         conn.execute("UPDATE users SET company_name = ? WHERE company_id = ?", (new_name, str(admin["company_id"])))
         log_history(conn, admin["company_id"], f"Workspace company name updated to '{new_name}'")
-        return jsonify({"success": True})
+        return jsonify({"success": "True"})
 
 
 if __name__ == "__main__":
