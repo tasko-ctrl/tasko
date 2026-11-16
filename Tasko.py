@@ -3,6 +3,7 @@ import os
 import base64
 import random
 import io
+import html
 import json
 import sqlite3
 from functools import wraps
@@ -655,6 +656,17 @@ HTML_TEMPLATE = """
         let cachedTasks = [];
         let currentTaskView = 'list';
 
+        // XSS Sanitizer Helper
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&')
+                .replace(/</g, '<')
+                .replace(/>/g, '>')
+                .replace(/"/g, '"')
+                .replace(/'/g, ''');
+        }
+
         const commandList = [
             { title: "📋 Go to Assigned Tasks", action: () => { switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } },
             { title: "🔄 Go to Daily Routines", action: () => { switchSection('routinesSection', document.querySelectorAll('.sidebar-menu button')[1]); closeCommandPalette(); } },
@@ -860,7 +872,7 @@ HTML_TEMPLATE = """
             let container = document.getElementById('toastContainer');
             let toast = document.createElement('div');
             toast.className = `toast ${type}`;
-            toast.innerHTML = `<span>${message}</span>`;
+            toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
             container.appendChild(toast);
             setTimeout(() => {
                 toast.style.animation = 'toastOut 0.35s var(--ease-out-expo) forwards';
@@ -1248,7 +1260,7 @@ HTML_TEMPLATE = """
                 let key = u.email.replace(/[^a-zA-Z0-9]/g, '_');
                 return `
                 <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:12px; border:1px solid var(--border-color);">
-                    <div style="margin-bottom:8px;"><strong>${u.name}</strong> (${u.email})</div>
+                    <div style="margin-bottom:8px;"><strong>${escapeHtml(u.name)}</strong> (${escapeHtml(u.email)})</div>
                     <label style="font-size:0.8em; color:var(--subtext);">Select Stance / Type Custom Role:</label>
                     <select id="stanceSelect_${key}" onchange="document.getElementById('customStance_${key}').classList.toggle('hidden', this.value!=='Custom')" style="margin-bottom:8px;">
                         <option value="Team Member">Team Member</option>
@@ -1316,8 +1328,8 @@ HTML_TEMPLATE = """
             container.innerHTML = data.employees.map(e => `
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color);">
                     <div>
-                        <span>${e.name} (${e.email}) • <b style="color:var(--accent);">${e.stance || e.role}</b></span>
-                        <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${(e.permissions || []).join(', ') || 'None'}</div>
+                        <span>${escapeHtml(e.name)} (${escapeHtml(e.email)}) • <b style="color:var(--accent);">${escapeHtml(e.stance || e.role)}</b></span>
+                        <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${escapeHtml((e.permissions || []).join(', ') || 'None')}</div>
                     </div>
                     ${(e.role !== 'CEO' && (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees')))) ? `<button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
                 </div>
@@ -1348,7 +1360,7 @@ HTML_TEMPLATE = """
             let res = await apiFetch('/api/admin/employees-list');
             if (!res.ok) return;
             let data = await res.json();
-            let opts = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${e.name}">${e.name} (${e.stance || e.role})</option>`).join('');
+            let opts = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${escapeHtml(e.name)}">${escapeHtml(e.name)} (${escapeHtml(e.stance || e.role)})</option>`).join('');
             document.getElementById('taskAssigneeSelect').innerHTML = opts;
             document.getElementById('routineAssigneeSelect').innerHTML = opts;
         }
@@ -1413,7 +1425,7 @@ HTML_TEMPLATE = """
 
             if(configRoutinesContainer) {
                 configRoutinesContainer.innerHTML = data.routines.length === 0 ? "<span style='color:var(--subtext);'>No daily routines configured.</span>" :
-                    data.routines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color);"><b>${r.title}</b> • Assigned to: ${r.assigned_to}</div>`).join('');
+                    data.routines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color);"><b>${escapeHtml(r.title)}</b> • Assigned to: ${escapeHtml(r.assigned_to)}</div>`).join('');
             }
 
             let viewableRoutines = data.routines.filter(r => currentUser.role === 'CEO' || r.assigned_to === currentUser.name);
@@ -1432,8 +1444,8 @@ HTML_TEMPLATE = """
                         <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <div>
-                                    <strong style="font-size:1.05em;">${r.title}</strong>
-                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${r.assigned_to} • Resets daily</div>
+                                    <strong style="font-size:1.05em;">${escapeHtml(r.title)}</strong>
+                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${escapeHtml(r.assigned_to)} • Resets daily</div>
                                 </div>
                                 <div>${statusBadge}</div>
                             </div>
@@ -1445,7 +1457,7 @@ HTML_TEMPLATE = """
 
             let historyBody = document.getElementById('historyTableBody');
             historyBody.innerHTML = data.history.length === 0 ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>` : 
-                data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${h.time}</td><td>${h.action}</td></tr>`).join('');
+                data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${escapeHtml(h.time)}</td><td>${escapeHtml(h.action)}</td></tr>`).join('');
         }
 
         function renderTasks(tasks) {
@@ -1505,14 +1517,14 @@ HTML_TEMPLATE = """
                     <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                             <div>
-                                <strong style="font-size:1.1em;">${t.title}</strong>
+                                <strong style="font-size:1.1em;">${escapeHtml(t.title)}</strong>
                                 <div style="font-size:0.85em; color:var(--subtext); margin-top:6px;">
-                                    Assigned to: ${t.assigned_to} • Priority: ${t.priority} • Deadline: ${t.deadline || 'None'}
+                                    Assigned to: ${escapeHtml(t.assigned_to)} • Priority: ${escapeHtml(t.priority)} • Deadline: ${escapeHtml(t.deadline || 'None')}
                                 </div>
                             </div>
                             <div>${statusBadge}</div>
                         </div>
-                        ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:10px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${t.ai_comment}</div>` : ''}
+                        ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:10px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${escapeHtml(t.ai_comment)}</div>` : ''}
                         ${actionHtml}
                     </div>
                 `;
@@ -1540,8 +1552,8 @@ HTML_TEMPLATE = """
             let canDrag = currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('assign_tasks'));
             return `
                 <div class="kanban-card" ${canDrag ? 'draggable="true" ondragstart="dragTaskStart(event, ' + t.id + ')"' : ''}>
-                    <div style="font-weight:600; font-size:0.95em; margin-bottom:6px;">${t.title}</div>
-                    <div style="font-size:0.75em; color:var(--subtext); margin-bottom:8px;">Assigned: ${t.assigned_to} • ${t.priority}</div>
+                    <div style="font-weight:600; font-size:0.95em; margin-bottom:6px;">${escapeHtml(t.title)}</div>
+                    <div style="font-size:0.75em; color:var(--subtext); margin-bottom:8px;">Assigned: ${escapeHtml(t.assigned_to)} • ${escapeHtml(t.priority)}</div>
                     ${!canDrag && t.status === 'Pending' ? `
                         <div style="margin-top:8px; border-top:1px solid var(--border-color); padding-top:8px;">
                             <input type="file" id="proofFile_${t.id}" accept="image/*" style="font-size:0.75em; margin-bottom:6px; padding:4px;" onchange="handleFileSelect(${t.id}, this)">
@@ -1591,14 +1603,19 @@ HTML_TEMPLATE = """
 
         async function markRoutineDone(routineId) {
             showLoader("Updating routine status...");
-            await apiFetch('/api/routines/complete', {
+            let res = await apiFetch('/api/routines/complete', {
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({routine_id: routineId})
             });
             hideLoader();
-            showToast("Daily routine marked completed!");
-            loadDashboardData();
+            if (res.ok) {
+                showToast("Daily routine marked completed!");
+                loadDashboardData();
+            } else {
+                let err = await res.json();
+                showToast(err.error || "Failed to update routine.", "error");
+            }
         }
 
         async function loadWorkspaceChat() {
@@ -1608,7 +1625,7 @@ HTML_TEMPLATE = """
             let data = await res.json();
             let box = document.getElementById('chatBox');
             box.innerHTML = data.messages.length === 0 ? '<i style="color:var(--subtext);">No messages yet. Say hi!</i>' :
-                data.messages.map(m => `<div class="chat-message"><strong style="color:var(--accent);">${m.sender}:</strong> ${m.text} <span style="font-size:0.75em; color:var(--subtext); float:right;">${m.time}</span></div>`).join('');
+                data.messages.map(m => `<div class="chat-message"><strong style="color:var(--accent);">${escapeHtml(m.sender)}:</strong> ${escapeHtml(m.text)} <span style="font-size:0.75em; color:var(--subtext); float:right;">${escapeHtml(m.time)}</span></div>`).join('');
             box.scrollTop = box.scrollHeight;
         }
 
@@ -1879,7 +1896,6 @@ def add_task():
 @require_auth
 def update_task_status():
     user = request.current_user
-    # FIX 1: Enforce permission check so employees cannot drag-and-drop bypass AI proof
     if not has_permission(user, "assign_tasks"):
         return jsonify({"error": "Permission denied. Only managers or CEOs can manually override task statuses."}), 403
 
@@ -1934,6 +1950,10 @@ def complete_routine():
         if not routine:
             return jsonify({"error": "Routine not found."}), 404
 
+        # Enforce Routine Ownership Check
+        if user["role"] != "CEO" and routine["assigned_to"] != user["name"] and not has_permission(user, "assign_tasks"):
+            return jsonify({"error": "Permission denied. You can only complete your own daily routines."}), 403
+
         conn.execute(
             "INSERT OR REPLACE INTO daily_logs (log_date, routine_id, status) VALUES (?, ?, 'Completed')",
             (today_date, routine_id)
@@ -1967,7 +1987,6 @@ def verify_proof():
                 f"Evaluate if the uploaded image proves task completion for: '{task['title']}'."
                 " Analyze the image accurately and return a structured assessment."
             )
-            # FIX 2 & 3: Use valid model ID gemini-2.5-flash and Structured Outputs with response_schema
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[
