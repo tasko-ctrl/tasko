@@ -479,13 +479,13 @@ HTML_TEMPLATE = """
                 <input type="text" id="suName" placeholder="Full Name">
                 <input type="email" id="suEmail" placeholder="name@company.com">
                 <input type="password" id="suPassword" placeholder="••••••••••••">
-                <select id="suRole" onchange="toggleCompanyInput()">
+                <select id="suRole" onchange="window.toggleCompanyInput()">
                     <option value="Employee">Employee</option>
                     <option value="CEO">CEO (Create Workspace)</option>
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
-                <button type="button" onclick="nextSignupStep()" style="margin-top:12px;">Continue to Workspace ID</button>
-                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="javascript:void(0)" onclick="toggleAuth('login')">Sign in</a></p>
+                <button type="button" onclick="window.nextSignupStep()" style="margin-top:12px;">Continue to Workspace ID</button>
+                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="javascript:void(0)" onclick="window.toggleAuth('login')">Sign in</a></p>
             </div>
 
             <div id="signupCompanyModal" class="hidden">
@@ -493,8 +493,8 @@ HTML_TEMPLATE = """
                 <p style="font-size:0.85em; color:var(--subtext); margin-bottom:14px;" id="signupCompanyModalSub">Enter the workspace ID provided by your company.</p>
                 <input type="text" id="suCompanyId" placeholder="Workspace Company ID">
                 <div style="display:flex; gap:10px;">
-                    <button type="button" onclick="backToSignupCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
-                    <button type="button" onclick="registerAccount()">Complete Sign Up</button>
+                    <button type="button" onclick="window.backToSignupCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
+                    <button type="button" onclick="window.registerAccount()">Complete Sign Up</button>
                 </div>
             </div>
         </div>
@@ -505,7 +505,7 @@ HTML_TEMPLATE = """
             <div style="width:14px; height:14px; background:#fbbf24; border-radius:50%; margin:0 auto 20px auto; box-shadow: 0 0 20px #fbbf24; animation: pulseGlow 1.4s infinite;"></div>
             <h2 style="margin-bottom:12px;">Waiting for CEO Approval</h2>
             <p style="color:var(--subtext); font-size:0.9em; line-height:1.6; margin-bottom:32px;">Your account has been registered. The workspace CEO needs to review and assign your role/permissions before you can enter.</p>
-            <button type="button" onclick="logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Sign Out</button>
+            <button type="button" onclick="window.logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Sign Out</button>
         </div>
     </div>
 
@@ -533,7 +533,7 @@ HTML_TEMPLATE = """
                 <div style="font-size:0.75em; color:var(--accent); margin-bottom:14px;" id="sidebarUserStance">Stance</div>
                 <button type="button" onclick="toggleFeedbackModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">💬 Send Feedback</button>
                 <button type="button" onclick="toggleCommandPalette()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--subtext); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">🔍 Command Palette (⌘K)</button>
-                <button type="button" onclick="logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
+                <button type="button" onclick="window.logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
             </div>
         </div>
 
@@ -833,11 +833,11 @@ HTML_TEMPLATE = """
             }
         };
 
-        function toggleFeedbackModal() {
+        window.toggleFeedbackModal = function() {
             document.getElementById('feedbackModal').classList.toggle('active');
-        }
+        };
 
-        function submitFeedbackDraft() {
+        window.submitFeedbackDraft = function() {
             let platform = document.getElementById('feedbackPlatformSelect').value;
             let feedback = document.getElementById('feedbackText').value.trim();
             let subject = encodeURIComponent("Tasko Workspace Feedback");
@@ -875,9 +875,9 @@ HTML_TEMPLATE = """
             toggleFeedbackModal();
             window.open(targetUrl, '_blank');
             showToast("Opening draft in your selected email platform!");
-        }
+        };
 
-        function toggleCommandPalette() {
+        window.toggleCommandPalette = function() {
             let modal = document.getElementById('cmdPaletteModal');
             modal.classList.toggle('active');
             if (modal.classList.contains('active')) {
@@ -885,7 +885,7 @@ HTML_TEMPLATE = """
                 filterCommands();
                 document.getElementById('cmdInput').focus();
             }
-        }
+        };
 
         function closeCommandPalette() {
             document.getElementById('cmdPaletteModal').classList.remove('active');
@@ -920,7 +920,7 @@ HTML_TEMPLATE = """
             }
         });
 
-        function setTaskView(view) {
+        window.setTaskView = function(view) {
             currentTaskView = view;
             let listBtn = document.getElementById('viewListBtn');
             let kanbanBtn = document.getElementById('viewKanbanBtn');
@@ -948,17 +948,17 @@ HTML_TEMPLATE = """
             }
             updateURLParams();
             renderTasks(cachedTasks);
-        }
+        };
 
-        function allowDrop(ev) {
+        window.allowDrop = function(ev) {
             ev.preventDefault();
-        }
+        };
 
-        function dragTaskStart(ev, taskId) {
+        window.dragTaskStart = function(ev, taskId) {
             ev.dataTransfer.setData("text/plain", taskId);
-        }
+        };
 
-        async function dropTask(ev, newStatus) {
+        window.dropTask = async function(ev, newStatus) {
             ev.preventDefault();
             let taskId = ev.dataTransfer.getData("text/plain");
             if (!taskId) return;
@@ -976,12 +976,12 @@ HTML_TEMPLATE = """
                 let err = await res.json();
                 showToast(err.error || "Failed to update status", "error");
             }
-        }
+        };
 
-        function applyFilters() {
+        window.applyFilters = function() {
             updateURLParams();
             renderTasks(cachedTasks);
-        }
+        };
 
         function updateURLParams() {
             let search = document.getElementById('filterSearch').value;
@@ -1021,14 +1021,14 @@ HTML_TEMPLATE = """
             }, 3000);
         }
 
-        function handleFileSelect(taskId, input) {
+        window.handleFileSelect = function(taskId, input) {
             if (input.files && input.files[0]) {
                 selectedProofFiles[taskId] = input.files[0];
                 showToast("Image selected successfully!", "info");
             }
-        }
+        };
 
-        function triggerGoogleSignIn() {
+        window.triggerGoogleSignIn = function() {
             if (!GOOGLE_CLIENT_ID) {
                 showToast("Google Client ID is missing. Please set GOOGLE_CLIENT_ID in Railway variables.", "error");
                 return;
@@ -1042,7 +1042,7 @@ HTML_TEMPLATE = """
             } else {
                 showToast("Google SDK is still loading.", "info");
             }
-        }
+        };
 
         async function handleGoogleOAuthCredential(response) {
             showLoader("Verifying Google OAuth token...");
@@ -1061,7 +1061,7 @@ HTML_TEMPLATE = """
             }
         }
 
-        async function triggerAppleSignIn() {
+        window.triggerAppleSignIn = async function() {
             try {
                 showLoader("Connecting to Apple ID...");
                 const data = await AppleID.auth.signIn();
@@ -1084,18 +1084,18 @@ HTML_TEMPLATE = """
                 hideLoader();
                 showToast("Apple Sign-In cancelled or unavailable.", "error");
             }
-        }
+        };
 
         function openSocialWorkspaceModal() {
             document.getElementById('socialModalTitle').innerText = `Link ${pendingOAuthData.provider} Account`;
             document.getElementById('socialWorkspaceModal').classList.remove('hidden');
         }
 
-        function closeSocialWorkspaceModal() {
+        window.closeSocialWorkspaceModal = function() {
             document.getElementById('socialWorkspaceModal').classList.add('hidden');
-        }
+        };
 
-        async function submitSocialWorkspaceId() {
+        window.submitSocialWorkspaceId = async function() {
             let company_id = document.getElementById('socialWorkspaceIdInput').value.trim();
             if(!company_id) {
                 showToast("Workspace ID is required.", "error");
@@ -1124,13 +1124,13 @@ HTML_TEMPLATE = """
             } else {
                 showToast(result.error, "error");
             }
-        }
+        };
 
-        function updateRefreshRateSetting() {
+        window.updateRefreshRateSetting = function() {
             savedRefreshRate = document.getElementById('settingsRefreshRate').value;
             localStorage.setItem('tasko_refresh_rate', savedRefreshRate);
             restartAutoRefreshInterval();
-        }
+        };
 
         function restartAutoRefreshInterval() {
             if (workspaceRefreshInterval) clearInterval(workspaceRefreshInterval);
@@ -1145,20 +1145,20 @@ HTML_TEMPLATE = """
             }, intervalMs);
         }
 
-        function toggleTheme() {
+        window.toggleTheme = function() {
             document.body.classList.toggle('light-theme');
             currentTheme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
             localStorage.setItem('tasko_theme', currentTheme);
-        }
+        };
 
-        function switchSection(sectionId, btnElement) {
+        window.switchSection = function(sectionId, btnElement) {
             document.querySelectorAll('.section-view').forEach(el => el.classList.add('hidden'));
             document.getElementById(sectionId).classList.remove('hidden');
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             if (btnElement) btnElement.classList.add('active');
-        }
+        };
 
-        function toggleAuth(formType) {
+        window.toggleAuth = function(formType) {
             let loginForm = document.getElementById('loginForm');
             let signupForm = document.getElementById('signupForm');
             let loginCompanyModal = document.getElementById('loginCompanyModal');
@@ -1176,9 +1176,9 @@ HTML_TEMPLATE = """
                 signupForm.classList.add('hidden');
                 loginForm.classList.remove('hidden');
             }
-        }
+        };
 
-        function toggleCompanyInput() {
+        window.toggleCompanyInput = function() {
             let role = document.getElementById('suRole').value;
             let compInput = document.getElementById('suCompanyName');
             if (role === 'CEO') {
@@ -1186,9 +1186,9 @@ HTML_TEMPLATE = """
             } else {
                 compInput.classList.add('hidden');
             }
-        }
+        };
 
-        function nextLoginStep() {
+        window.nextLoginStep = function() {
             let email = document.getElementById('loginEmail').value.trim();
             let password = document.getElementById('loginPassword').value;
             if(!email || !password) {
@@ -1197,14 +1197,14 @@ HTML_TEMPLATE = """
             }
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('loginCompanyModal').classList.remove('hidden');
-        }
+        };
 
-        function backToLoginCredentials() {
+        window.backToLoginCredentials = function() {
             document.getElementById('loginCompanyModal').classList.add('hidden');
             document.getElementById('loginForm').classList.remove('hidden');
-        }
+        };
 
-        function nextSignupStep() {
+        window.nextSignupStep = function() {
             let name = document.getElementById('suName').value.trim();
             let email = document.getElementById('suEmail').value.trim();
             let password = document.getElementById('suPassword').value;
@@ -1237,14 +1237,14 @@ HTML_TEMPLATE = """
                 companyIdInput.readOnly = false;
                 companyIdInput.style.opacity = '1';
             }
-        }
+        };
 
-        function backToSignupCredentials() {
+        window.backToSignupCredentials = function() {
             document.getElementById('signupCompanyModal').classList.add('hidden');
             document.getElementById('signupForm').classList.remove('hidden');
-        }
+        };
 
-        async function registerAccount() {
+        window.registerAccount = async function() {
             let signupData = {
                 name: document.getElementById('suName').value.trim(),
                 email: document.getElementById('suEmail').value.trim(),
@@ -1269,9 +1269,9 @@ HTML_TEMPLATE = """
                 showToast("Account created successfully!");
                 checkLoginState();
             } else { showToast(result.error, "error"); }
-        }
+        };
 
-        async function loginFinal() {
+        window.loginFinal = async function() {
             let data = {
                 email: document.getElementById('loginEmail').value.trim(),
                 password: document.getElementById('loginPassword').value,
@@ -1293,9 +1293,9 @@ HTML_TEMPLATE = """
                 showToast("Logged in successfully!");
                 checkLoginState();
             } else { showToast(result.error, "error"); }
-        }
+        };
 
-        function logout() {
+        window.logout = function() {
             currentUser = null;
             authToken = null;
             localStorage.removeItem('tasko_user');
@@ -1306,7 +1306,7 @@ HTML_TEMPLATE = """
             document.getElementById('waitingContainer').classList.add('hidden');
             document.getElementById('dashboardContainer').classList.add('hidden');
             toggleAuth('login');
-        }
+        };
 
         async function checkLoginState() {
             if(!currentUser || !authToken) return;
@@ -1380,7 +1380,7 @@ HTML_TEMPLATE = """
             restartAutoRefreshInterval();
         }
 
-        async function updateCompanyName() {
+        window.updateCompanyName = async function() {
             let newName = document.getElementById('settingsCompanyName').value.trim();
             if(!newName) { showToast("Company name cannot be empty.", "error"); return; }
             showLoader("Updating company name...");
@@ -1399,7 +1399,7 @@ HTML_TEMPLATE = """
                 let err = await res.json();
                 showToast(err.error || "Unauthorized", "error");
             }
-        }
+        };
 
         async function loadPendingUsers() {
             let res = await apiFetch('/api/admin/pending-users');
@@ -1433,12 +1433,12 @@ HTML_TEMPLATE = """
                         <label><input type="checkbox" id="perm_assign_${key}" checked> Assign Tasks</label>
                         <label><input type="checkbox" id="perm_logs_${key}" checked> View Activity Logs</label>
                     </div>
-                    <button type="button" onclick="approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
+                    <button type="button" onclick="window.approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
                 </div>`;
             }).join('');
         }
 
-        async function approveUser(email) {
+        window.approveUser = async function(email) {
             let emailKey = email.replace(/[^a-zA-Z0-9]/g, '_');
             let stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
             let stance = stanceDropdown === 'Custom' ? document.getElementById(`customStance_${emailKey}`).value.trim() : stanceDropdown;
@@ -1468,7 +1468,7 @@ HTML_TEMPLATE = """
                 let err = await res.json();
                 showToast(err.error || "Approval failed", "error");
             }
-        }
+        };
 
         async function loadEmployeesManagement() {
             let res = await apiFetch('/api/admin/employees-list');
@@ -1485,12 +1485,12 @@ HTML_TEMPLATE = """
                         <span>${escapeHtml(e.name)} (${escapeHtml(e.email)}) • <b style="color:var(--accent);">${escapeHtml(e.stance || e.role)}</b></span>
                         <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${escapeHtml((e.permissions || []).join(', ') || 'None')}</div>
                     </div>
-                    ${(e.role !== 'CEO' && (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees')))) ? `<button type="button" onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
+                    ${(e.role !== 'CEO' && (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees')))) ? `<button type="button" onclick="window.kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
                 </div>
             `).join('');
         }
 
-        async function kickEmployee(email) {
+        window.kickEmployee = async function(email) {
             if(!confirm("Are you sure you want to kick this employee?")) return;
             showLoader("Removing employee...");
             let res = await apiFetch('/api/admin/kick-employee', {
@@ -1508,7 +1508,7 @@ HTML_TEMPLATE = """
                 let err = await res.json();
                 showToast(err.error || "Failed to kick employee.", "error");
             }
-        }
+        };
 
         async function loadEmployeesDropdown() {
             let res = await apiFetch('/api/admin/employees-list');
@@ -1519,7 +1519,7 @@ HTML_TEMPLATE = """
             document.getElementById('routineAssigneeSelect').innerHTML = opts;
         }
 
-        async function createTask() {
+        window.createTask = async function() {
             let data = {
                 title: document.getElementById('taskTitle').value.trim(),
                 assigned_to: document.getElementById('taskAssigneeSelect').value,
@@ -1542,9 +1542,9 @@ HTML_TEMPLATE = """
                 let err = await res.json();
                 showToast(err.error || "Failed to assign task", "error");
             }
-        }
+        };
 
-        async function createDailyRoutine() {
+        window.createDailyRoutine = async function() {
             let data = {
                 title: document.getElementById('routineTitle').value.trim(),
                 assigned_to: document.getElementById('routineAssigneeSelect').value
@@ -1564,7 +1564,7 @@ HTML_TEMPLATE = """
                 let err = await res.json();
                 showToast(err.error || "Failed to add routine", "error");
             }
-        }
+        };
 
         async function loadDashboardData() {
             let res = await apiFetch('/api/data');
@@ -1591,7 +1591,7 @@ HTML_TEMPLATE = """
                     let statusBadge = isDoneToday ? '<span class="badge-done"><span class="pulsing-dot"></span>Done Today ✓</span>' : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Today</span>';
                     let actionHtml = (currentUser.role !== 'CEO' && !isDoneToday) ? `
                         <div style="margin-top:12px;">
-                            <button type="button" onclick="markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
+                            <button type="button" onclick="window.markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
                         </div>` : '';
 
                     return `
@@ -1661,8 +1661,8 @@ HTML_TEMPLATE = """
                     actionHtml = `
                         <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
                             <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
-                            <input type="file" id="proofFile_${t.id}" accept="image/*" style="margin-bottom:10px; padding:8px;" onchange="handleFileSelect(${t.id}, this)">
-                            <button type="button" onclick="submitProof(${t.id})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
+                            <input type="file" id="proofFile_${t.id}" accept="image/*" style="margin-bottom:10px; padding:8px;" onchange="window.handleFileSelect(${t.id}, this)">
+                            <button type="button" onclick="window.submitProof(${t.id})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
                         </div>
                     `;
                 }
@@ -1705,20 +1705,20 @@ HTML_TEMPLATE = """
         function kanbanCardHtml(t) {
             let canDrag = currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('assign_tasks'));
             return `
-                <div class="kanban-card" ${canDrag ? 'draggable="true" ondragstart="dragTaskStart(event, ' + t.id + ')"' : ''}>
+                <div class="kanban-card" ${canDrag ? 'draggable="true" ondragstart="window.dragTaskStart(event, ' + t.id + ')"' : ''}>
                     <div style="font-weight:600; font-size:0.95em; margin-bottom:6px;">${escapeHtml(t.title)}</div>
                     <div style="font-size:0.75em; color:var(--subtext); margin-bottom:8px;">Assigned: ${escapeHtml(t.assigned_to)} • ${escapeHtml(t.priority)}</div>
                     ${!canDrag && t.status === 'Pending' ? `
                         <div style="margin-top:8px; border-top:1px solid var(--border-color); padding-top:8px;">
-                            <input type="file" id="proofFile_${t.id}" accept="image/*" style="font-size:0.75em; margin-bottom:6px; padding:4px;" onchange="handleFileSelect(${t.id}, this)">
-                            <button type="button" onclick="submitProof(${t.id})" style="background:#059669; padding:6px 12px; font-size:0.8em; width:100%;">Submit Proof</button>
+                            <input type="file" id="proofFile_${t.id}" accept="image/*" style="font-size:0.75em; margin-bottom:6px; padding:4px;" onchange="window.handleFileSelect(${t.id}, this)">
+                            <button type="button" onclick="window.submitProof(${t.id})" style="background:#059669; padding:6px 12px; font-size:0.8em; width:100%;">Submit Proof</button>
                         </div>
                     ` : ''}
                 </div>
             `;
         }
 
-        async function submitProof(taskId) {
+        window.submitProof = async function(taskId) {
             let file = selectedProofFiles[taskId];
             if (!file) {
                 let fileInput = document.getElementById(`proofFile_${taskId}`);
@@ -1753,9 +1753,9 @@ HTML_TEMPLATE = """
                 }
             };
             reader.readAsDataURL(file);
-        }
+        };
 
-        async function markRoutineDone(routineId) {
+        window.markRoutineDone = async function(routineId) {
             showLoader("Updating routine status...");
             let res = await apiFetch('/api/routines/complete', {
                 method:'POST',
@@ -1770,7 +1770,7 @@ HTML_TEMPLATE = """
                 let err = await res.json();
                 showToast(err.error || "Failed to update routine.", "error");
             }
-        }
+        };
 
         async function loadWorkspaceChat() {
             if(!currentUser || !authToken) return;
@@ -1783,7 +1783,7 @@ HTML_TEMPLATE = """
             box.scrollTop = box.scrollHeight;
         }
 
-        async function sendChatMessage() {
+        window.sendChatMessage = async function() {
             let input = document.getElementById('chatInput');
             let text = input.value.trim();
             if(!text) return;
@@ -1794,7 +1794,7 @@ HTML_TEMPLATE = """
             });
             input.value = '';
             loadWorkspaceChat();
-        }
+        };
     </script>
 </body>
 </html>
