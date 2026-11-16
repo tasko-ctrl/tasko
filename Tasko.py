@@ -383,8 +383,8 @@ HTML_TEMPLATE = """
             <textarea id="feedbackText" rows="4" placeholder="Describe your feedback, feature request, or bug report here..." style="margin-bottom: 20px; resize: none;"></textarea>
 
             <div style="display: flex; gap: 10px;">
-                <button onclick="toggleFeedbackModal()" style="background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); box-shadow: none;">Cancel</button>
-                <button onclick="submitFeedbackDraft()">Open Draft in Selected Platform</button>
+                <button type="button" onclick="toggleFeedbackModal()" style="background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); box-shadow: none;">Cancel</button>
+                <button type="button" onclick="submitFeedbackDraft()">Open Draft in Selected Platform</button>
             </div>
         </div>
     </div>
@@ -408,27 +408,30 @@ HTML_TEMPLATE = """
             <p style="font-size:0.85em; color:var(--subtext); margin-bottom:14px;">Please provide your company's Workspace ID to link your social account.</p>
             <input type="text" id="socialWorkspaceIdInput" placeholder="Workspace Company ID">
             <div style="display:flex; gap:10px;">
-                <button onclick="closeSocialWorkspaceModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Cancel</button>
-                <button onclick="submitSocialWorkspaceId()">Continue</button>
+                <button type="button" onclick="closeSocialWorkspaceModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Cancel</button>
+                <button type="button" onclick="submitSocialWorkspaceId()">Continue</button>
             </div>
         </div>
     </div>
 
     <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
         <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: fadeInScale 0.5s var(--ease-out-expo);">
-            <div style="display:flex; align-items:center; gap:12px; margin-bottom:28px;">
-                <div style="width:10px; height:10px; background:var(--accent); border-radius:50%; box-shadow: 0 0 16px var(--accent); animation: pulseGlow 2s infinite;"></div>
-                <h2 style="margin:0; font-size: 1.3em; letter-spacing:-0.02em;">Tasko Workspace</h2>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:28px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div style="width:10px; height:10px; background:var(--accent); border-radius:50%; box-shadow: 0 0 16px var(--accent); animation: pulseGlow 2s infinite;"></div>
+                    <h2 style="margin:0; font-size: 1.3em; letter-spacing:-0.02em;">Tasko Workspace</h2>
+                </div>
+                <button type="button" onclick="toggleFeedbackModal()" class="social-btn" style="width:auto; padding:6px 12px; font-size:0.75em; margin:0;">💬 Feedback</button>
             </div>
             
             <div id="loginForm">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Sign in to your account</h3>
                 
-                <button class="social-btn" onclick="triggerGoogleSignIn()">
+                <button type="button" class="social-btn" onclick="triggerGoogleSignIn()">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h5.51c-.24 1.38-1.54 4.05-5.51 4.05-3.32 0-6.03-2.75-6.03-6.13s2.71-6.13 6.03-6.13c1.89 0 3.15.81 3.87 1.5l2.04-1.99C16.89 3.73 14.88 3 12.18 3 7.12 3 3 7.12 3 12.18s4.12 9.18 9.18 9.18c5.3 0 8.81-3.73 8.81-8.98 0-.62-.07-1.09-.17-1.28z"/></svg>
                     Continue with Google
                 </button>
-                <button class="social-btn" onclick="triggerAppleSignIn()">
+                <button type="button" class="social-btn" onclick="triggerAppleSignIn()">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 5.75c.61-.75 1.02-1.8 0.91-2.85-.88.04-1.95.59-2.57 1.34-.57.67-1.07 1.74-.94 2.78 1 .08 1.99-.48 2.6-1.27z"/></svg>
                     Continue with Apple
                 </button>
@@ -441,8 +444,8 @@ HTML_TEMPLATE = """
 
                 <input type="email" id="loginEmail" placeholder="name@company.com">
                 <input type="password" id="loginPassword" placeholder="••••••••••••">
-                <button onclick="nextLoginStep()">Continue to Workspace ID</button>
-                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Don't have an account? <a href="#" onclick="toggleAuth('signup')">Sign up</a></p>
+                <button type="button" onclick="nextLoginStep()">Continue to Workspace ID</button>
+                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Don't have an account? <a href="javascript:void(0)" onclick="toggleAuth('signup')">Sign up</a></p>
             </div>
 
             <div id="loginCompanyModal" class="hidden">
@@ -450,21 +453,21 @@ HTML_TEMPLATE = """
                 <p style="font-size:0.85em; color:var(--subtext); margin-bottom:14px;">Please provide your company's Workspace ID to access your dashboard.</p>
                 <input type="text" id="loginCompanyId" placeholder="Workspace Company ID">
                 <div style="display:flex; gap:10px;">
-                    <button onclick="backToLoginCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
-                    <button onclick="loginFinal()">Sign In</button>
+                    <button type="button" onclick="backToLoginCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
+                    <button type="button" onclick="loginFinal()">Sign In</button>
                 </div>
             </div>
 
             <div id="signupForm" class="hidden">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Create a new account</h3>
                 
-                <button class="social-btn" onclick="triggerGoogleSignIn()">
+                <button type="button" class="social-btn" onclick="triggerGoogleSignIn()">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h5.51c-.24 1.38-1.54 4.05-5.51 4.05-3.32 0-6.03-2.75-6.03-6.13s2.71-6.13 6.03-6.13c1.89 0 3.15.81 3.87 1.5l2.04-1.99C16.89 3.73 14.88 3 12.18 3 7.12 3 3 7.12 3 12.18s4.12 9.18 9.18 9.18c5.3 0 8.81-3.73 8.81-8.98 0-.62-.07-1.09-.17-1.28z"/></svg>
                     Sign up with Google
                 </button>
-                <button class="social-btn" onclick="triggerAppleSignIn()">
+                <button type="button" class="social-btn" onclick="triggerAppleSignIn()">
                     <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 5.75c.61-.75 1.02-1.8 0.91-2.85-.88.04-1.95.59-2.57 1.34-.57.67-1.07 1.74-.94 2.78 1 .08 1.99-.48 2.6-1.27z"/></svg>
-                    Sign up with Apple
+                    Continue with Apple
                 </button>
 
                 <div style="display:flex; align-items:center; margin:18px 0; color:var(--subtext); font-size:0.8em;">
@@ -481,8 +484,8 @@ HTML_TEMPLATE = """
                     <option value="CEO">CEO (Create Workspace)</option>
                 </select>
                 <input type="text" id="suCompanyName" placeholder="Company Name" class="hidden">
-                <button onclick="nextSignupStep()" style="margin-top:12px;">Continue to Workspace ID</button>
-                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="#" onclick="toggleAuth('login')">Sign up</a></p>
+                <button type="button" onclick="nextSignupStep()" style="margin-top:12px;">Continue to Workspace ID</button>
+                <p style="margin-top:22px; font-size:0.85em; text-align:center; color:var(--subtext);">Already have an account? <a href="javascript:void(0)" onclick="toggleAuth('login')">Sign in</a></p>
             </div>
 
             <div id="signupCompanyModal" class="hidden">
@@ -490,8 +493,8 @@ HTML_TEMPLATE = """
                 <p style="font-size:0.85em; color:var(--subtext); margin-bottom:14px;" id="signupCompanyModalSub">Enter the workspace ID provided by your company.</p>
                 <input type="text" id="suCompanyId" placeholder="Workspace Company ID">
                 <div style="display:flex; gap:10px;">
-                    <button onclick="backToSignupCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
-                    <button onclick="registerAccount()">Complete Sign Up</button>
+                    <button type="button" onclick="backToSignupCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
+                    <button type="button" onclick="registerAccount()">Complete Sign Up</button>
                 </div>
             </div>
         </div>
@@ -502,7 +505,7 @@ HTML_TEMPLATE = """
             <div style="width:14px; height:14px; background:#fbbf24; border-radius:50%; margin:0 auto 20px auto; box-shadow: 0 0 20px #fbbf24; animation: pulseGlow 1.4s infinite;"></div>
             <h2 style="margin-bottom:12px;">Waiting for CEO Approval</h2>
             <p style="color:var(--subtext); font-size:0.9em; line-height:1.6; margin-bottom:32px;">Your account has been registered. The workspace CEO needs to review and assign your role/permissions before you can enter.</p>
-            <button onclick="logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Sign Out</button>
+            <button type="button" onclick="logout()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Sign Out</button>
         </div>
     </div>
 
@@ -514,23 +517,23 @@ HTML_TEMPLATE = """
             </div>
             
             <div class="sidebar-menu">
-                <button class="nav-item active" onclick="switchSection('tasksSection', this)">📋 Assigned Tasks</button>
-                <button class="nav-item" onclick="switchSection('routinesSection', this)">🔄 Daily Routines</button>
-                <button id="navAssign" class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
-                <button id="navRoutinesConfig" class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙ Set Daily Routines</button>
-                <button id="navApprovals" class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
-                <button id="navChat" class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
-                <button id="navLogs" class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
-                <button class="nav-item" onclick="switchSection('settingsSection', this)">⚙ Settings</button>
+                <button type="button" class="nav-item active" onclick="switchSection('tasksSection', this)">📋 Assigned Tasks</button>
+                <button type="button" class="nav-item" onclick="switchSection('routinesSection', this)">🔄 Daily Routines</button>
+                <button type="button" id="navAssign" class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
+                <button type="button" id="navRoutinesConfig" class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙ Set Daily Routines</button>
+                <button type="button" id="navApprovals" class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
+                <button type="button" id="navChat" class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
+                <button type="button" id="navLogs" class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
+                <button type="button" class="nav-item" onclick="switchSection('settingsSection', this)">⚙ Settings</button>
             </div>
 
             <div style="border-top:1px solid var(--border-color); padding-top:16px; margin-top:auto;">
                 <div style="font-size:0.85em; color:var(--text-color); font-weight:600;" id="sidebarUserName">User</div>
                 <div style="font-size:0.75em; color:var(--subtext); margin-bottom:4px;" id="sidebarUserRole">Role</div>
                 <div style="font-size:0.75em; color:var(--accent); margin-bottom:14px;" id="sidebarUserStance">Stance</div>
-                <button onclick="toggleFeedbackModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">💬 Send Feedback</button>
-                <button onclick="toggleCommandPalette()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--subtext); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">🔍 Command Palette (⌘K)</button>
-                <button onclick="logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
+                <button type="button" onclick="toggleFeedbackModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">💬 Send Feedback</button>
+                <button type="button" onclick="toggleCommandPalette()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--subtext); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">🔍 Command Palette (⌘K)</button>
+                <button type="button" onclick="logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
             </div>
         </div>
 
@@ -543,8 +546,8 @@ HTML_TEMPLATE = """
                             <p style="font-size:0.9em; color:var(--subtext); margin:0;">Filter, sort, view Kanban board, and submit proofs for AI verification.</p>
                         </div>
                         <div style="display: flex; gap: 10px;">
-                            <button id="viewListBtn" onclick="setTaskView('list')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--accent);">📋 List View</button>
-                            <button id="viewKanbanBtn" onclick="setTaskView('kanban')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); box-shadow: none;">📊 Kanban Board</button>
+                            <button type="button" id="viewListBtn" onclick="setTaskView('list')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--accent);">📋 List View</button>
+                            <button type="button" id="viewKanbanBtn" onclick="setTaskView('kanban')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); box-shadow: none;">📊 Kanban Board</button>
                         </div>
                     </div>
 
@@ -635,7 +638,7 @@ HTML_TEMPLATE = """
                         <option value="High">High Priority</option>
                     </select>
                     
-                    <button onclick="createTask()" style="margin-top:12px;">Assign Task to Team Member</button>
+                    <button type="button" onclick="createTask()" style="margin-top:12px;">Assign Task to Team Member</button>
                 </div>
             </div>
 
@@ -652,7 +655,7 @@ HTML_TEMPLATE = """
                         <option value="">Select Employee</option>
                     </select>
                     
-                    <button onclick="createDailyRoutine()" style="margin-top:12px;">Add Auto-Daily Routine</button>
+                    <button type="button" onclick="createDailyRoutine()" style="margin-top:12px;">Add Auto-Daily Routine</button>
 
                     <h4 style="margin-top:28px; font-size:0.95em; color:var(--subtext);">Active Daily Routines</h4>
                     <div id="configRoutinesList">No routines configured.</div>
@@ -678,7 +681,7 @@ HTML_TEMPLATE = """
                     <div id="chatBox" class="chat-box" style="flex:1;"></div>
                     <div style="display:flex; gap:12px; margin-top:auto;">
                         <input type="text" id="chatInput" placeholder="Type a message to the team..." onkeydown="if(event.key==='Enter') sendChatMessage()" style="margin:0;">
-                        <button onclick="sendChatMessage()" style="width: auto; margin:0; padding:0 28px;">Send</button>
+                        <button type="button" onclick="sendChatMessage()" style="width: auto; margin:0; padding:0 28px;">Send</button>
                     </div>
                 </div>
             </div>
@@ -707,7 +710,7 @@ HTML_TEMPLATE = """
                         <label style="font-size:0.85em; color:var(--subtext);">Workspace Company Name</label>
                         <div style="display:flex; gap:12px;">
                             <input type="text" id="settingsCompanyName" placeholder="MyCorp">
-                            <button onclick="updateCompanyName()" style="width:auto; margin:8px 0 18px 0; padding:0 20px;">Save</button>
+                            <button type="button" onclick="updateCompanyName()" style="width:auto; margin:8px 0 18px 0; padding:0 20px;">Save</button>
                         </div>
                     </div>
 
@@ -718,7 +721,7 @@ HTML_TEMPLATE = """
 
                     <div style="margin-top:24px; border-top:1px solid var(--border-color); padding-top:24px;">
                         <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:10px;">Appearance Theme</label>
-                        <button onclick="toggleTheme()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); width:auto; padding:10px 18px; box-shadow:none;">🌓 Toggle Dark / Light Mode</button>
+                        <button type="button" onclick="toggleTheme()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); width:auto; padding:10px 18px; box-shadow:none;">🌓 Toggle Dark / Light Mode</button>
                     </div>
 
                     <div style="margin-top:24px; border-top:1px solid var(--border-color); padding-top:24px;">
@@ -1027,17 +1030,17 @@ HTML_TEMPLATE = """
 
         function triggerGoogleSignIn() {
             if (!GOOGLE_CLIENT_ID) {
-                showToast("Google Sign-In is not configured on this server yet.", "error");
+                showToast("Google Client ID is missing. Please set GOOGLE_CLIENT_ID in Railway variables.", "error");
                 return;
             }
             if (typeof google !== 'undefined') {
                 google.accounts.id.prompt((notification) => {
-                    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-                        showToast("Google Sign-In popup was blocked or dismissed.", "info");
+                    if (notification.isNotDisplayed()) {
+                        showToast("Google sign-in popup was blocked by browser settings.", "error");
                     }
                 });
             } else {
-                showToast("Google SDK still loading, try again in a second.", "info");
+                showToast("Google SDK is still loading.", "info");
             }
         }
 
@@ -1156,11 +1159,23 @@ HTML_TEMPLATE = """
         }
 
         function toggleAuth(formType) {
-            document.getElementById('loginForm').classList.remove('hidden');
-            document.getElementById('loginCompanyModal').classList.add('hidden');
-            document.getElementById('signupForm').classList.toggle('hidden', formType !== 'signup');
-            document.getElementById('signupCompanyModal').classList.add('hidden');
-            document.getElementById('loginForm').classList.toggle('hidden', formType !== 'login');
+            let loginForm = document.getElementById('loginForm');
+            let signupForm = document.getElementById('signupForm');
+            let loginCompanyModal = document.getElementById('loginCompanyModal');
+            let signupCompanyModal = document.getElementById('signupCompanyModal');
+
+            if (!loginForm || !signupForm) return;
+
+            loginCompanyModal.classList.add('hidden');
+            signupCompanyModal.classList.add('hidden');
+
+            if (formType === 'signup') {
+                loginForm.classList.add('hidden');
+                signupForm.classList.remove('hidden');
+            } else {
+                signupForm.classList.add('hidden');
+                loginForm.classList.remove('hidden');
+            }
         }
 
         function toggleCompanyInput() {
@@ -1208,18 +1223,19 @@ HTML_TEMPLATE = """
             document.getElementById('signupForm').classList.add('hidden');
             document.getElementById('signupCompanyModal').classList.remove('hidden');
 
+            let companyIdInput = document.getElementById('suCompanyId');
             if(role === 'CEO') {
                 document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID (Generated)";
                 document.getElementById('signupCompanyModalSub').innerText = "A new workspace ID will be created for your company.";
-                document.getElementById('suCompanyId').value = Math.floor(1000000000 + Math.random() * 9000000000);
-                document.getElementById('suCompanyId').readOnly = true;
-                document.getElementById('suCompanyId').style.opacity = '0.7';
+                companyIdInput.value = Math.floor(1000000000 + Math.random() * 9000000000);
+                companyIdInput.readOnly = true;
+                companyIdInput.style.opacity = '0.7';
             } else {
                 document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID";
                 document.getElementById('signupCompanyModalSub').innerText = "Enter the workspace ID provided by your company.";
-                document.getElementById('suCompanyId').value = '';
-                document.getElementById('suCompanyId').readOnly = false;
-                document.getElementById('suCompanyId').style.opacity = '1';
+                companyIdInput.value = '';
+                companyIdInput.readOnly = false;
+                companyIdInput.style.opacity = '1';
             }
         }
 
@@ -1417,7 +1433,7 @@ HTML_TEMPLATE = """
                         <label><input type="checkbox" id="perm_assign_${key}" checked> Assign Tasks</label>
                         <label><input type="checkbox" id="perm_logs_${key}" checked> View Activity Logs</label>
                     </div>
-                    <button onclick="approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
+                    <button type="button" onclick="approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
                 </div>`;
             }).join('');
         }
@@ -1469,7 +1485,7 @@ HTML_TEMPLATE = """
                         <span>${escapeHtml(e.name)} (${escapeHtml(e.email)}) • <b style="color:var(--accent);">${escapeHtml(e.stance || e.role)}</b></span>
                         <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${escapeHtml((e.permissions || []).join(', ') || 'None')}</div>
                     </div>
-                    ${(e.role !== 'CEO' && (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees')))) ? `<button onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
+                    ${(e.role !== 'CEO' && (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees')))) ? `<button type="button" onclick="kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
                 </div>
             `).join('');
         }
@@ -1575,7 +1591,7 @@ HTML_TEMPLATE = """
                     let statusBadge = isDoneToday ? '<span class="badge-done"><span class="pulsing-dot"></span>Done Today ✓</span>' : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Today</span>';
                     let actionHtml = (currentUser.role !== 'CEO' && !isDoneToday) ? `
                         <div style="margin-top:12px;">
-                            <button onclick="markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
+                            <button type="button" onclick="markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
                         </div>` : '';
 
                     return `
@@ -1646,7 +1662,7 @@ HTML_TEMPLATE = """
                         <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
                             <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
                             <input type="file" id="proofFile_${t.id}" accept="image/*" style="margin-bottom:10px; padding:8px;" onchange="handleFileSelect(${t.id}, this)">
-                            <button onclick="submitProof(${t.id})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
+                            <button type="button" onclick="submitProof(${t.id})" style="background:#059669; padding:10px 16px; font-size:0.9em; width:auto;">Submit Proof</button>
                         </div>
                     `;
                 }
@@ -1695,7 +1711,7 @@ HTML_TEMPLATE = """
                     ${!canDrag && t.status === 'Pending' ? `
                         <div style="margin-top:8px; border-top:1px solid var(--border-color); padding-top:8px;">
                             <input type="file" id="proofFile_${t.id}" accept="image/*" style="font-size:0.75em; margin-bottom:6px; padding:4px;" onchange="handleFileSelect(${t.id}, this)">
-                            <button onclick="submitProof(${t.id})" style="background:#059669; padding:6px 12px; font-size:0.8em; width:100%;">Submit Proof</button>
+                            <button type="button" onclick="submitProof(${t.id})" style="background:#059669; padding:6px 12px; font-size:0.8em; width:100%;">Submit Proof</button>
                         </div>
                     ` : ''}
                 </div>
