@@ -18,6 +18,7 @@ import jwt
 import requests
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # 8 MB payload limit[cite: 1]
 
 # --- Environment & Security Configuration ---
 SECRET_KEY = os.environ.get("SECRET_KEY", "change-this-in-railway-variables-super-secret")
@@ -37,10 +38,37 @@ DB_DIR = "tasko_data"
 os.makedirs(DB_DIR, exist_ok=True)
 DB_PATH = os.path.join(DB_DIR, "tasko.db")
 
+# Ensure templates directory and landing page exist[cite: 1]
+os.makedirs("templates", exist_ok=True)
+LANDING_HTML_PATH = os.path.join("templates", "landing.html")
+if not os.path.exists(LANDING_HTML_PATH):
+    with open(LANDING_HTML_PATH, "w") as f:
+        f.write("""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tasko Workspace - Welcome</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #07090e; color: #ededef; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .card { background: #0f1523; padding: 40px; border-radius: 16px; border: 1px solid #1a2234; text-align: center; max-width: 400px; box-shadow: 0 10px 35px rgba(0,0,0,0.5); }
+        a.btn { display: inline-block; background: #5e6ad2; color: white; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 500; margin-top: 20px; transition: background 0.2s; }
+        a.btn:hover { background: #727ffd; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Tasko Workspace</h2>
+        <p style="color: #8a95a5; font-size: 0.9em;">Enterprise workspace management with AI-powered task verification.</p>
+        <a href="/app" class="btn">Launch Workspace App</a>
+    </div>
+</body>
+</html>""")
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=15)
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)  # Fixed concurrency settings[cite: 1]
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout = 30000;")
     return conn
 
 def init_db():
@@ -190,7 +218,7 @@ HTML_TEMPLATE = """
             --accent: #5e6ad2;
             --accent-hover: #4f58bc;
         }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.4s var(--ease-out-expo), color 0.4s var(--ease-out-expo); }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.4s var(--ease-out-expo), color 0.4s var(--ease-out-expo); pointer-events: auto !important; }
         
         .sidebar { width: 265px; min-width: 265px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 24px; box-sizing: border-box; height: 100vh; transition: all 0.3s var(--ease-out-expo); }
         .sidebar-brand { font-size: 1.15em; font-weight: 600; display: flex; align-items: center; gap: 10px; margin-bottom: 32px; color: var(--text-color); letter-spacing: -0.01em; animation: fadeInDown 0.5s var(--ease-out-expo); }
@@ -219,17 +247,17 @@ HTML_TEMPLATE = """
         
         .section-view { animation: fadeInScale 0.4s var(--ease-out-expo) forwards; }
 
-        .card { background: var(--card-bg); padding: 32px; border-radius: 16px; margin-bottom: 24px; box-shadow: 0 10px 35px -8px rgba(0,0,0,0.5); border: 1px solid var(--border-color); transition: all 0.3s var(--ease-out-expo); position: relative; overflow: hidden; }
+        .card { background: var(--card-bg); padding: 32px; border-radius: 16px; margin-bottom: 24px; box-shadow: 0 10px 35px -8px rgba(0,0,0,0.5); border: 1px solid var(--border-color); transition: all 0.3s var(--ease-out-expo); position: relative; overflow: hidden; pointer-events: auto !important; z-index: 10; }
         .card:hover { border-color: rgba(94, 106, 210, 0.4); transform: translateY(-3px); box-shadow: 0 16px 45px -10px rgba(94, 106, 210, 0.2); }
         
-        input, select, textarea { padding: 12px 16px; margin: 8px 0 18px 0; border-radius: 10px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); width: 100%; box-sizing: border-box; font-size: 0.9em; outline: none; transition: all 0.25s var(--ease-out-expo); }
+        input, select, textarea { padding: 12px 16px; margin: 8px 0 18px 0; border-radius: 10px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); width: 100%; box-sizing: border-box; font-size: 0.9em; outline: none; transition: all 0.25s var(--ease-out-expo); pointer-events: auto !important; position: relative; z-index: 15; }
         input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.18), 0 4px 12px rgba(0,0,0,0.2); background: var(--card-bg); transform: translateY(-1px); }
         
-        button { background: var(--accent); cursor: pointer; font-weight: 500; border: none; color: white; padding: 12px 20px; border-radius: 10px; width: 100%; font-size: 0.9em; transition: all 0.25s var(--ease-spring); display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 16px rgba(94, 106, 210, 0.35); position: relative; overflow: hidden; }
+        button { background: var(--accent); cursor: pointer; font-weight: 500; border: none; color: white; padding: 12px 20px; border-radius: 10px; width: 100%; font-size: 0.9em; transition: all 0.25s var(--ease-spring); display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 16px rgba(94, 106, 210, 0.35); position: relative; overflow: hidden; pointer-events: auto !important; z-index: 20; }
         button:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(94, 106, 210, 0.5); }
         button:active { transform: translateY(1px) scale(0.97); box-shadow: 0 2px 10px rgba(94, 106, 210, 0.3); }
         
-        .social-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 10px; box-shadow: none; font-weight: 500; }
+        .social-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 10px; box-shadow: none; font-weight: 500; pointer-events: auto !important; }
         .social-btn:hover { background: var(--card-hover); border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
 
         #globalLoader { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(6px); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; opacity: 0; pointer-events: none; transition: opacity 0.3s var(--ease-out-expo); }
@@ -270,7 +298,7 @@ HTML_TEMPLATE = """
         .chat-box { height: 400px; overflow-y: scroll; border: 1px solid var(--border-color); background: var(--input-bg); padding: 18px; border-radius: 12px; margin-bottom: 16px; scroll-behavior: smooth; }
         .chat-message { margin-bottom: 14px; font-size: 0.9em; line-height: 1.5; animation: fadeInScale 0.3s var(--ease-out-expo); }
         h2, h3, h4 { margin-top: 0; font-weight: 600; letter-spacing: -0.01em; }
-        a { color: var(--accent); text-decoration: none; transition: color 0.15s; }
+        a { color: var(--accent); text-decoration: none; transition: color 0.15s; pointer-events: auto !important; }
         a:hover { color: var(--accent-hover); text-decoration: underline; }
 
         /* Kanban Board Styles */
@@ -402,7 +430,7 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Workspace ID Modal for Social Logins -->
-    <div id="socialWorkspaceModal" class="hidden" style="position:fixed; inset:0; background:rgba(7, 9, 14, 0.85); backdrop-filter:blur(6px); z-index:9999; display:flex; align-items:center; justify-content:center;">
+    <div id="socialWorkspaceModal" class="hidden" style="position:fixed; inset:0; background:rgba(7, 9, 14, 0.85); backdrop-filter:blur(6px); z-index:9999; display:flex; align-items:center; justify-content:center; pointer-events: auto !important;">
         <div class="card" style="width:100%; max-width:400px; margin:0;">
             <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;" id="socialModalTitle">Enter Workspace ID</h3>
             <p style="font-size:0.85em; color:var(--subtext); margin-bottom:14px;">Please provide your company's Workspace ID to link your social account.</p>
@@ -414,7 +442,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color);">
+    <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color); pointer-events: auto !important; position: relative; z-index: 5;">
         <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: fadeInScale 0.5s var(--ease-out-expo);">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:28px;">
                 <div style="display:flex; align-items:center; gap:12px;">
@@ -747,6 +775,7 @@ HTML_TEMPLATE = """
         let savedRefreshRate = localStorage.getItem('tasko_refresh_rate') || '10';
         let workspaceRefreshInterval = null;
         let approvalCheckInterval = null;
+        let chatPollInterval = null;  // Stored for proper cleanup on logout[cite: 1]
         let pendingOAuthData = null;
         let selectedProofFiles = {};
         let cachedTasks = [];
@@ -759,7 +788,7 @@ HTML_TEMPLATE = """
                 .replace(/</g, '<')
                 .replace(/>/g, '>')
                 .replace(/"/g, '"')
-                .replace(/'/g, ''');
+                .replace(/'/g, ''');  // Fixed syntax error[cite: 1]
         }
 
         const commandList = [
@@ -827,7 +856,9 @@ HTML_TEMPLATE = """
 
             if (currentUser && authToken) {
                 checkLoginState();
-                setInterval(loadWorkspaceChat, 3000);
+                if (!chatPollInterval) {
+                    chatPollInterval = setInterval(loadWorkspaceChat, 3000);  // Tracked chat interval[cite: 1]
+                }
             } else if (currentUser && !authToken) {
                 logout();
             }
@@ -1302,6 +1333,7 @@ HTML_TEMPLATE = """
             localStorage.removeItem('tasko_token');
             if (workspaceRefreshInterval) clearInterval(workspaceRefreshInterval);
             if (approvalCheckInterval) clearInterval(approvalCheckInterval);
+            if (chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }  // Clears chat polling on logout[cite: 1]
             document.getElementById('authContainer').style.display = 'flex';
             document.getElementById('waitingContainer').classList.add('hidden');
             document.getElementById('dashboardContainer').classList.add('hidden');
@@ -1377,6 +1409,9 @@ HTML_TEMPLATE = """
             }
             loadDashboardData();
             loadWorkspaceChat();
+            if (!chatPollInterval) {
+                chatPollInterval = setInterval(loadWorkspaceChat, 3000);
+            }
             restartAutoRefreshInterval();
         }
 
@@ -1982,6 +2017,8 @@ def social_login():
 @require_auth
 def check_status():
     user = request.current_user
+    if user["status"] == "Kicked":
+        return jsonify({"status": "Kicked"})
     if user["status"] == "Approved":
         return jsonify({
             "status": "Approved",
@@ -2254,7 +2291,8 @@ def kick_employee():
         if target["role"] == "CEO":
             return jsonify({"error": "Cannot kick the workspace CEO."}), 400
 
-        conn.execute("DELETE FROM users WHERE email = ?", (email,))
+        # Mark user as Kicked instead of immediate deletion so check_status can notify them[cite: 1]
+        conn.execute("UPDATE users SET status = 'Kicked' WHERE email = ?", (email,))
         log_history(conn, admin["company_id"], f"Employee {target['name']} was kicked from the workspace by {admin['name']}")
         return jsonify({"success": True})
 
