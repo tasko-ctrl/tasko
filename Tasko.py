@@ -18,7 +18,7 @@ import jwt
 import requests
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # 8 MB payload limit[cite: 1]
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # Cap uploads at 8 MB to prevent OOM crashes
 
 # --- Environment & Security Configuration ---
 SECRET_KEY = os.environ.get("SECRET_KEY", "change-this-in-railway-variables-super-secret")
@@ -28,21 +28,22 @@ APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "com.tasko.workspace.app")
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
+
 # --- Structured AI Output Pydantic Schema ---
 class TaskProofEvaluation(BaseModel):
     passed: bool = Field(description="True if the image genuinely fulfills the task requirements, False otherwise.")
     reason: str = Field(description="A concise professional explanation for why the proof passed or failed.")
+
 
 # --- SQLite Persistent Storage Layer (Concurrency-Safe) ---
 DB_DIR = "tasko_data"
 os.makedirs(DB_DIR, exist_ok=True)
 DB_PATH = os.path.join(DB_DIR, "tasko.db")
 
-# Ensure templates directory and landing page exist[cite: 1]
 os.makedirs("templates", exist_ok=True)
 LANDING_HTML_PATH = os.path.join("templates", "landing.html")
 if not os.path.exists(LANDING_HTML_PATH):
-    with open(LANDING_HTML_PATH, "w") as f:
+    with open(LANDING_HTML_PATH, "w", encoding="utf-8") as f:
         f.write("""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -64,12 +65,15 @@ if not os.path.exists(LANDING_HTML_PATH):
 </body>
 </html>""")
 
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)  # Fixed concurrency settings[cite: 1]
+    # check_same_thread=False is required because Flask handles requests across worker threads
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA busy_timeout = 30000;")
     return conn
+
 
 def init_db():
     with get_db() as conn:
@@ -122,13 +126,16 @@ def init_db():
             );
         """)
 
+
 init_db()
+
 
 def log_history(conn, company_id, action):
     conn.execute(
         "INSERT INTO history (company_id, action, time) VALUES (?, ?, ?)",
         (str(company_id), action, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
     )
+
 
 def serialize_user(row):
     return {
@@ -142,6 +149,7 @@ def serialize_user(row):
         "company_name": row["company_name"]
     }
 
+
 # --- JWT Token & Auth Middleware ---
 def create_token(user_dict):
     payload = {
@@ -151,6 +159,7 @@ def create_token(user_dict):
         "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=7)
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
 
 def require_auth(f):
     @wraps(f)
@@ -173,6 +182,7 @@ def require_auth(f):
             request.current_user = serialize_user(row)
         return f(*args, **kwargs)
     return decorated
+
 
 def has_permission(user, perm):
     return user["role"] == "CEO" or perm in user.get("permissions", [])
@@ -301,7 +311,6 @@ HTML_TEMPLATE = """
         a { color: var(--accent); text-decoration: none; transition: color 0.15s; pointer-events: auto !important; }
         a:hover { color: var(--accent-hover); text-decoration: underline; }
 
-        /* Kanban Board Styles */
         .kanban-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px; }
         .kanban-col { background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px; min-height: 450px; display: flex; flex-direction: column; }
         .kanban-col-header { font-weight: 600; font-size: 0.9em; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--border-color); color: var(--subtext); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -310,14 +319,12 @@ HTML_TEMPLATE = """
         .kanban-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
         .kanban-card:active { cursor: grabbing; }
 
-        /* Command Palette Modal */
         #cmdPaletteModal { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.8); backdrop-filter: blur(8px); z-index: 99999; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; opacity: 0; pointer-events: none; transition: opacity 0.2s var(--ease-out-expo); }
         #cmdPaletteModal.active { opacity: 1; pointer-events: auto; }
         .cmd-box { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; width: 100%; max-width: 600px; box-shadow: 0 25px 60px rgba(0,0,0,0.7); overflow: hidden; animation: fadeInScale 0.3s var(--ease-out-expo); }
         .cmd-item { padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.15s; font-size: 0.9em; color: var(--text-color); border-bottom: 1px solid var(--border-color); }
         .cmd-item:hover, .cmd-item.selected { background: rgba(94, 106, 210, 0.15); color: var(--accent); }
 
-        /* Feedback Modal */
         #feedbackModal { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(8px); z-index: 99999; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.2s var(--ease-out-expo); }
         #feedbackModal.active { opacity: 1; pointer-events: auto; }
     </style>
@@ -332,7 +339,7 @@ HTML_TEMPLATE = """
     <!-- Feedback Modal -->
     <div id="feedbackModal" onclick="if(event.target === this) toggleFeedbackModal()">
         <div class="card" style="width: 100%; max-width: 500px; margin: 0; max-height: 85vh; display: flex; flex-direction: column;">
-            <h3 style="margin-bottom: 6px;">💬 Send Workspace Feedback</h3>
+            <h3 style="margin-bottom: 6px;">Send Workspace Feedback</h3>
             <p style="font-size: 0.85em; color: var(--subtext); margin-bottom: 16px;">Select your preferred email platform or service to open a pre-filled draft to <b>taskofeedback@gmail.com</b>.</p>
             
             <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Choose Email Platform / Client</label>
@@ -449,7 +456,7 @@ HTML_TEMPLATE = """
                     <div style="width:10px; height:10px; background:var(--accent); border-radius:50%; box-shadow: 0 0 16px var(--accent); animation: pulseGlow 2s infinite;"></div>
                     <h2 style="margin:0; font-size: 1.3em; letter-spacing:-0.02em;">Tasko Workspace</h2>
                 </div>
-                <button type="button" onclick="toggleFeedbackModal()" class="social-btn" style="width:auto; padding:6px 12px; font-size:0.75em; margin:0;">💬 Feedback</button>
+                <button type="button" onclick="toggleFeedbackModal()" class="social-btn" style="width:auto; padding:6px 12px; font-size:0.75em; margin:0;">Feedback</button>
             </div>
             
             <div id="loginForm">
@@ -545,22 +552,22 @@ HTML_TEMPLATE = """
             </div>
             
             <div class="sidebar-menu">
-                <button type="button" class="nav-item active" onclick="switchSection('tasksSection', this)">📋 Assigned Tasks</button>
-                <button type="button" class="nav-item" onclick="switchSection('routinesSection', this)">🔄 Daily Routines</button>
-                <button type="button" id="navAssign" class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">➕ Assign Task</button>
-                <button type="button" id="navRoutinesConfig" class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">⚙ Set Daily Routines</button>
-                <button type="button" id="navApprovals" class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">👥 Employee Approvals</button>
-                <button type="button" id="navChat" class="nav-item" onclick="switchSection('chatSection', this)">💬 Team Chat</button>
-                <button type="button" id="navLogs" class="nav-item" onclick="switchSection('logsSection', this)">📜 Activity Logs</button>
-                <button type="button" class="nav-item" onclick="switchSection('settingsSection', this)">⚙ Settings</button>
+                <button type="button" class="nav-item active" onclick="switchSection('tasksSection', this)">Assigned Tasks</button>
+                <button type="button" class="nav-item" onclick="switchSection('routinesSection', this)">Daily Routines</button>
+                <button type="button" id="navAssign" class="nav-item ceo-only hidden" onclick="switchSection('assignSection', this)">Assign Task</button>
+                <button type="button" id="navRoutinesConfig" class="nav-item ceo-only hidden" onclick="switchSection('routinesConfigSection', this)">Set Daily Routines</button>
+                <button type="button" id="navApprovals" class="nav-item ceo-only hidden" onclick="switchSection('approvalsSection', this)">Employee Approvals</button>
+                <button type="button" id="navChat" class="nav-item" onclick="switchSection('chatSection', this)">Team Chat</button>
+                <button type="button" id="navLogs" class="nav-item" onclick="switchSection('logsSection', this)">Activity Logs</button>
+                <button type="button" class="nav-item" onclick="switchSection('settingsSection', this)">Settings</button>
             </div>
 
             <div style="border-top:1px solid var(--border-color); padding-top:16px; margin-top:auto;">
                 <div style="font-size:0.85em; color:var(--text-color); font-weight:600;" id="sidebarUserName">User</div>
                 <div style="font-size:0.75em; color:var(--subtext); margin-bottom:4px;" id="sidebarUserRole">Role</div>
                 <div style="font-size:0.75em; color:var(--accent); margin-bottom:14px;" id="sidebarUserStance">Stance</div>
-                <button type="button" onclick="toggleFeedbackModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">💬 Send Feedback</button>
-                <button type="button" onclick="toggleCommandPalette()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--subtext); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">🔍 Command Palette (⌘K)</button>
+                <button type="button" onclick="toggleFeedbackModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">Send Feedback</button>
+                <button type="button" onclick="toggleCommandPalette()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--subtext); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">Command Palette (⌘K)</button>
                 <button type="button" onclick="window.logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
             </div>
         </div>
@@ -574,8 +581,8 @@ HTML_TEMPLATE = """
                             <p style="font-size:0.9em; color:var(--subtext); margin:0;">Filter, sort, view Kanban board, and submit proofs for AI verification.</p>
                         </div>
                         <div style="display: flex; gap: 10px;">
-                            <button type="button" id="viewListBtn" onclick="setTaskView('list')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--accent);">📋 List View</button>
-                            <button type="button" id="viewKanbanBtn" onclick="setTaskView('kanban')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); box-shadow: none;">📊 Kanban Board</button>
+                            <button type="button" id="viewListBtn" onclick="setTaskView('list')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--accent);">List View</button>
+                            <button type="button" id="viewKanbanBtn" onclick="setTaskView('kanban')" style="width: auto; padding: 8px 16px; font-size: 0.85em; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); box-shadow: none;">Kanban Board</button>
                         </div>
                     </div>
 
@@ -606,7 +613,7 @@ HTML_TEMPLATE = """
                             <label style="font-size: 0.75em; color: var(--subtext); text-transform: uppercase;">Sort By</label>
                             <select id="sortBy" onchange="applyFilters()" style="margin: 4px 0 0 0; padding: 8px 12px;">
                                 <option value="id_desc">Newest First</option>
-                                <option value="priority">Priority (High → Low)</option>
+                                <option value="priority">Priority (High to Low)</option>
                                 <option value="deadline">Deadline</option>
                             </select>
                         </div>
@@ -619,15 +626,15 @@ HTML_TEMPLATE = """
                     <div id="taskKanbanViewContainer" class="hidden">
                         <div class="kanban-grid">
                             <div class="kanban-col" ondragover="allowDrop(event)" ondrop="dropTask(event, 'Pending')">
-                                <div class="kanban-col-header">⏳ Pending Proof <span id="countPending" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
+                                <div class="kanban-col-header">Pending Proof <span id="countPending" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
                                 <div class="kanban-cards" id="kanbanPending"></div>
                             </div>
                             <div class="kanban-col" ondragover="allowDrop(event)" ondrop="dropTask(event, 'Completed')">
-                                <div class="kanban-col-header">✅ Completed <span id="countCompleted" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
+                                <div class="kanban-col-header">Completed <span id="countCompleted" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
                                 <div class="kanban-cards" id="kanbanCompleted"></div>
                             </div>
                             <div class="kanban-col" ondragover="allowDrop(event)" ondrop="dropTask(event, 'Failed')">
-                                <div class="kanban-col-header">❌ Failed <span id="countFailed" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
+                                <div class="kanban-col-header">Failed <span id="countFailed" style="background:var(--card-bg); padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span></div>
                                 <div class="kanban-cards" id="kanbanFailed"></div>
                             </div>
                         </div>
@@ -749,7 +756,7 @@ HTML_TEMPLATE = """
 
                     <div style="margin-top:24px; border-top:1px solid var(--border-color); padding-top:24px;">
                         <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:10px;">Appearance Theme</label>
-                        <button type="button" onclick="toggleTheme()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); width:auto; padding:10px 18px; box-shadow:none;">🌓 Toggle Dark / Light Mode</button>
+                        <button type="button" onclick="toggleTheme()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); width:auto; padding:10px 18px; box-shadow:none;">Toggle Dark / Light Mode</button>
                     </div>
 
                     <div style="margin-top:24px; border-top:1px solid var(--border-color); padding-top:24px;">
@@ -769,43 +776,43 @@ HTML_TEMPLATE = """
         const GOOGLE_CLIENT_ID = {{ google_client_id | tojson }};
         const APPLE_CLIENT_ID = {{ apple_client_id | tojson }};
 
-        let currentUser = JSON.parse(localStorage.getItem('tasko_user')) || null;
-        let authToken = localStorage.getItem('tasko_token') || null;
-        let currentTheme = localStorage.getItem('tasko_theme') || 'dark';
-        let savedRefreshRate = localStorage.getItem('tasko_refresh_rate') || '10';
+        let currentUser = JSON.parse(localStorage.getItem("tasko_user")) || null;
+        let authToken = localStorage.getItem("tasko_token") || null;
+        let currentTheme = localStorage.getItem("tasko_theme") || "dark";
+        let savedRefreshRate = localStorage.getItem("tasko_refresh_rate") || "10";
         let workspaceRefreshInterval = null;
         let approvalCheckInterval = null;
-        let chatPollInterval = null;  // Stored for proper cleanup on logout[cite: 1]
+        let chatPollInterval = null;
         let pendingOAuthData = null;
         let selectedProofFiles = {};
         let cachedTasks = [];
-        let currentTaskView = 'list';
+        let currentTaskView = "list";
 
         function escapeHtml(str) {
-            if (!str) return '';
+            if (!str) return "";
             return String(str)
-                .replace(/&/g, '&')
-                .replace(/</g, '<')
-                .replace(/>/g, '>')
-                .replace(/"/g, '"')
-                .replace(/'/g, ''');  // Fixed syntax error[cite: 1]
+                .replace(/&/g, "&")
+                .replace(/</g, "<")
+                .replace(/>/g, ">")
+                .replace(/"/g, """)
+                .replace(/'/g, "'");
         }
 
         const commandList = [
-            { title: "💬 Send Workspace Feedback", action: () => { toggleFeedbackModal(); closeCommandPalette(); } },
-            { title: "📋 Go to Assigned Tasks", action: () => { switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } },
-            { title: "🔄 Go to Daily Routines", action: () => { switchSection('routinesSection', document.querySelectorAll('.sidebar-menu button')[1]); closeCommandPalette(); } },
-            { title: "💬 Go to Team Chat", action: () => { switchSection('chatSection', document.getElementById('navChat')); closeCommandPalette(); } },
-            { title: "⚙ Go to Settings", action: () => { switchSection('settingsSection', document.querySelectorAll('.sidebar-menu button')[document.querySelectorAll('.sidebar-menu button').length - 1]); closeCommandPalette(); } },
-            { title: "🌓 Toggle Dark / Light Theme", action: () => { toggleTheme(); closeCommandPalette(); } },
-            { title: "📊 Switch to Kanban Board View", action: () => { setTaskView('kanban'); switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } },
-            { title: "📋 Switch to List View", action: () => { setTaskView('list'); switchSection('tasksSection', document.querySelector('.sidebar-menu button')); closeCommandPalette(); } }
+            { title: "Send Workspace Feedback", action: () => { toggleFeedbackModal(); closeCommandPalette(); } },
+            { title: "Go to Assigned Tasks", action: () => { switchSection("tasksSection", document.querySelector(".sidebar-menu button")); closeCommandPalette(); } },
+            { title: "Go to Daily Routines", action: () => { switchSection("routinesSection", document.querySelectorAll(".sidebar-menu button")[1]); closeCommandPalette(); } },
+            { title: "Go to Team Chat", action: () => { switchSection("chatSection", document.getElementById("navChat")); closeCommandPalette(); } },
+            { title: "Go to Settings", action: () => { const btns = document.querySelectorAll(".sidebar-menu button"); switchSection("settingsSection", btns[btns.length - 1]); closeCommandPalette(); } },
+            { title: "Toggle Dark / Light Theme", action: () => { toggleTheme(); closeCommandPalette(); } },
+            { title: "Switch to Kanban Board View", action: () => { setTaskView("kanban"); switchSection("tasksSection", document.querySelector(".sidebar-menu button")); closeCommandPalette(); } },
+            { title: "Switch to List View", action: () => { setTaskView("list"); switchSection("tasksSection", document.querySelector(".sidebar-menu button")); closeCommandPalette(); } }
         ];
 
         async function apiFetch(url, options = {}) {
             options.headers = options.headers || {};
             if (authToken) {
-                options.headers['Authorization'] = `Bearer ${authToken}`;
+                options.headers["Authorization"] = `Bearer ${authToken}`;
             }
             const res = await fetch(url, options);
             if (res.status === 401 && authToken) {
@@ -814,29 +821,42 @@ HTML_TEMPLATE = """
             return res;
         }
 
-        window.onload = () => {
-            if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
-            document.getElementById('settingsRefreshRate').value = savedRefreshRate;
-            
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('search')) document.getElementById('filterSearch').value = urlParams.get('search');
-            if (urlParams.get('status')) document.getElementById('filterStatus').value = urlParams.get('status');
-            if (urlParams.get('priority')) document.getElementById('filterPriority').value = urlParams.get('priority');
-            if (urlParams.get('sort')) document.getElementById('sortBy').value = urlParams.get('sort');
-            if (urlParams.get('view') === 'kanban') setTaskView('kanban');
+        window.addEventListener("DOMContentLoaded", () => {
+            if (currentTheme === "light") {
+                document.body.classList.add("light-theme");
+            }
+            const refreshSelect = document.getElementById("settingsRefreshRate");
+            if (refreshSelect) refreshSelect.value = savedRefreshRate;
 
-            window.addEventListener('keydown', (e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get("search")) document.getElementById("filterSearch").value = urlParams.get("search");
+            if (urlParams.get("status")) document.getElementById("filterStatus").value = urlParams.get("status");
+            if (urlParams.get("priority")) document.getElementById("filterPriority").value = urlParams.get("priority");
+            if (urlParams.get("sort")) document.getElementById("sortBy").value = urlParams.get("sort");
+            if (urlParams.get("view") === "kanban") setTaskView("kanban");
+
+            const cmdInput = document.getElementById("cmdInput");
+            if (cmdInput) {
+                cmdInput.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") {
+                        const selected = document.querySelector(".cmd-item.selected");
+                        if (selected) selected.click();
+                    }
+                });
+            }
+
+            window.addEventListener("keydown", (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
                     e.preventDefault();
                     toggleCommandPalette();
-                } else if (e.key === 'Escape') {
+                } else if (e.key === "Escape") {
                     closeCommandPalette();
                     closeSocialWorkspaceModal();
-                    document.getElementById('feedbackModal').classList.remove('active');
+                    document.getElementById("feedbackModal").classList.remove("active");
                 }
             });
 
-            if (typeof google !== 'undefined' && GOOGLE_CLIENT_ID) {
+            if (typeof google !== "undefined" && GOOGLE_CLIENT_ID) {
                 google.accounts.id.initialize({
                     client_id: GOOGLE_CLIENT_ID,
                     callback: handleGoogleOAuthCredential
@@ -844,58 +864,60 @@ HTML_TEMPLATE = """
             }
 
             try {
-                if (APPLE_CLIENT_ID) {
+                if (typeof AppleID !== "undefined" && APPLE_CLIENT_ID) {
                     AppleID.auth.init({
                         clientId: APPLE_CLIENT_ID,
-                        scope: 'name email',
-                        redirectURI: window.location.origin + '/app',
+                        scope: "name email",
+                        redirectURI: window.location.origin + "/app",
                         usePopup: true
                     });
                 }
-            } catch(e) { console.log("AppleID init note:", e); }
+            } catch (e) {
+                console.log("AppleID init note:", e);
+            }
 
             if (currentUser && authToken) {
                 checkLoginState();
                 if (!chatPollInterval) {
-                    chatPollInterval = setInterval(loadWorkspaceChat, 3000);  // Tracked chat interval[cite: 1]
+                    chatPollInterval = setInterval(loadWorkspaceChat, 3000);
                 }
             } else if (currentUser && !authToken) {
                 logout();
             }
-        };
+        });
 
         window.toggleFeedbackModal = function() {
-            document.getElementById('feedbackModal').classList.toggle('active');
+            document.getElementById("feedbackModal").classList.toggle("active");
         };
 
         window.submitFeedbackDraft = function() {
-            let platform = document.getElementById('feedbackPlatformSelect').value;
-            let feedback = document.getElementById('feedbackText').value.trim();
-            let subject = encodeURIComponent("Tasko Workspace Feedback");
-            let body = encodeURIComponent(feedback || "Hello Tasko Team,\n\nHere is my feedback regarding the workspace:");
+            const platform = document.getElementById("feedbackPlatformSelect").value;
+            const feedback = document.getElementById("feedbackText").value.trim();
+            const subject = encodeURIComponent("Tasko Workspace Feedback");
+            const body = encodeURIComponent(feedback || "Hello Tasko Team,\n\nHere is my feedback regarding the workspace:");
 
             let targetUrl = "";
-            switch(platform) {
-                case 'gmail':
-                case 'google_workspace':
+            switch (platform) {
+                case "gmail":
+                case "google_workspace":
                     targetUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=taskofeedback@gmail.com&su=${subject}&body=${body}`;
                     break;
-                case 'outlook':
-                case 'm365':
-                case 'hotmail':
+                case "outlook":
+                case "m365":
+                case "hotmail":
                     targetUrl = `https://outlook.office.com/mail/deeplink/compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
                     break;
-                case 'yahoo':
+                case "yahoo":
                     targetUrl = `https://compose.mail.yahoo.com/?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
                     break;
-                case 'aol':
+                case "aol":
                     targetUrl = `https://mail.aol.com/webmail/compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
                     break;
-                case 'zoho_personal':
-                case 'zoho_business':
+                case "zoho_personal":
+                case "zoho_business":
                     targetUrl = `https://mail.zoho.com/zm/#compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
                     break;
-                case 'fastmail':
+                case "fastmail":
                     targetUrl = `https://app.fastmail.com/mail/compose?to=taskofeedback@gmail.com&subject=${subject}&body=${body}`;
                     break;
                 default:
@@ -904,78 +926,72 @@ HTML_TEMPLATE = """
             }
 
             toggleFeedbackModal();
-            window.open(targetUrl, '_blank');
+            window.open(targetUrl, "_blank");
             showToast("Opening draft in your selected email platform!");
         };
 
         window.toggleCommandPalette = function() {
-            let modal = document.getElementById('cmdPaletteModal');
-            modal.classList.toggle('active');
-            if (modal.classList.contains('active')) {
-                document.getElementById('cmdInput').value = '';
+            const modal = document.getElementById("cmdPaletteModal");
+            modal.classList.toggle("active");
+            if (modal.classList.contains("active")) {
+                const input = document.getElementById("cmdInput");
+                input.value = "";
                 filterCommands();
-                document.getElementById('cmdInput').focus();
+                input.focus();
             }
         };
 
-        function closeCommandPalette() {
-            document.getElementById('cmdPaletteModal').classList.remove('active');
-        }
+        window.closeCommandPalette = function() {
+            document.getElementById("cmdPaletteModal").classList.remove("active");
+        };
 
-        function filterCommands() {
-            let query = document.getElementById('cmdInput').value.toLowerCase();
-            let filtered = commandList.filter(c => c.title.toLowerCase().includes(query));
-            let listEl = document.getElementById('cmdResultsList');
+        window.filterCommands = function() {
+            const query = document.getElementById("cmdInput").value.toLowerCase();
+            const filtered = commandList.filter(c => c.title.toLowerCase().includes(query));
+            const listEl = document.getElementById("cmdResultsList");
             if (filtered.length === 0) {
                 listEl.innerHTML = `<div style="padding:16px; text-align:center; color:var(--subtext);">No matching actions found.</div>`;
                 return;
             }
             listEl.innerHTML = filtered.map((cmd, idx) => `
-                <div class="cmd-item ${idx===0?'selected':''}" onclick="executeCommand(${commandList.indexOf(cmd)})">
-                    <span>${cmd.title}</span>
-                    <span style="font-size:0.75em; color:var(--subtext);">Press Enter ↵</span>
+                <div class="cmd-item ${idx === 0 ? "selected" : ""}" onclick="executeCommand(${commandList.indexOf(cmd)})">
+                    <span>${escapeHtml(cmd.title)}</span>
+                    <span style="font-size:0.75em; color:var(--subtext);">Press Enter</span>
                 </div>
-            `).join('');
-        }
+            `).join("");
+        };
 
-        function executeCommand(index) {
+        window.executeCommand = function(index) {
             if (commandList[index]) {
                 commandList[index].action();
             }
-        }
-
-        document.getElementById('cmdInput')?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                let selected = document.querySelector('.cmd-item.selected');
-                if (selected) selected.click();
-            }
-        });
+        };
 
         window.setTaskView = function(view) {
             currentTaskView = view;
-            let listBtn = document.getElementById('viewListBtn');
-            let kanbanBtn = document.getElementById('viewKanbanBtn');
-            let listContainer = document.getElementById('taskListViewContainer');
-            let kanbanContainer = document.getElementById('taskKanbanViewContainer');
+            const listBtn = document.getElementById("viewListBtn");
+            const kanbanBtn = document.getElementById("viewKanbanBtn");
+            const listContainer = document.getElementById("taskListViewContainer");
+            const kanbanContainer = document.getElementById("taskKanbanViewContainer");
 
-            if (view === 'kanban') {
-                kanbanBtn.style.background = 'var(--accent)';
-                kanbanBtn.style.color = '#fff';
-                kanbanBtn.style.border = 'none';
-                listBtn.style.background = 'var(--input-bg)';
-                listBtn.style.color = 'var(--text-color)';
-                listBtn.style.border = '1px solid var(--border-color)';
-                listContainer.classList.add('hidden');
-                kanbanContainer.classList.remove('hidden');
+            if (view === "kanban") {
+                kanbanBtn.style.background = "var(--accent)";
+                kanbanBtn.style.color = "#fff";
+                kanbanBtn.style.border = "none";
+                listBtn.style.background = "var(--input-bg)";
+                listBtn.style.color = "var(--text-color)";
+                listBtn.style.border = "1px solid var(--border-color)";
+                listContainer.classList.add("hidden");
+                kanbanContainer.classList.remove("hidden");
             } else {
-                listBtn.style.background = 'var(--accent)';
-                listBtn.style.color = '#fff';
-                listBtn.style.border = 'none';
-                kanbanBtn.style.background = 'var(--input-bg)';
-                kanbanBtn.style.color = 'var(--text-color)';
-                kanbanBtn.style.border = '1px solid var(--border-color)';
-                kanbanContainer.classList.add('hidden');
-                listContainer.classList.remove('hidden');
+                listBtn.style.background = "var(--accent)";
+                listBtn.style.color = "#fff";
+                listBtn.style.border = "none";
+                kanbanBtn.style.background = "var(--input-bg)";
+                kanbanBtn.style.color = "var(--text-color)";
+                kanbanBtn.style.border = "1px solid var(--border-color)";
+                kanbanContainer.classList.add("hidden");
+                listContainer.classList.remove("hidden");
             }
             updateURLParams();
             renderTasks(cachedTasks);
@@ -986,17 +1002,17 @@ HTML_TEMPLATE = """
         };
 
         window.dragTaskStart = function(ev, taskId) {
-            ev.dataTransfer.setData("text/plain", taskId);
+            ev.dataTransfer.setData("text/plain", String(taskId));
         };
 
         window.dropTask = async function(ev, newStatus) {
             ev.preventDefault();
-            let taskId = ev.dataTransfer.getData("text/plain");
+            const taskId = ev.dataTransfer.getData("text/plain");
             if (!taskId) return;
             showLoader("Updating task status...");
-            let res = await apiFetch('/api/tasks/update-status', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+            const res = await apiFetch("/api/tasks/update-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ task_id: taskId, status: newStatus })
             });
             hideLoader();
@@ -1004,7 +1020,7 @@ HTML_TEMPLATE = """
                 showToast(`Task moved to ${newStatus}!`);
                 loadDashboardData();
             } else {
-                let err = await res.json();
+                const err = await res.json();
                 showToast(err.error || "Failed to update status", "error");
             }
         };
@@ -1015,39 +1031,40 @@ HTML_TEMPLATE = """
         };
 
         function updateURLParams() {
-            let search = document.getElementById('filterSearch').value;
-            let status = document.getElementById('filterStatus').value;
-            let priority = document.getElementById('filterPriority').value;
-            let sort = document.getElementById('sortBy').value;
+            const search = document.getElementById("filterSearch").value;
+            const status = document.getElementById("filterStatus").value;
+            const priority = document.getElementById("filterPriority").value;
+            const sort = document.getElementById("sortBy").value;
 
-            let params = new URLSearchParams();
-            if (search) params.set('search', search);
-            if (status) params.set('status', status);
-            if (priority) params.set('priority', priority);
-            if (sort && sort !== 'id_desc') params.set('sort', sort);
-            if (currentTaskView === 'kanban') params.set('view', 'kanban');
+            const params = new URLSearchParams();
+            if (search) params.set("search", search);
+            if (status) params.set("status", status);
+            if (priority) params.set("priority", priority);
+            if (sort && sort !== "id_desc") params.set("sort", sort);
+            if (currentTaskView === "kanban") params.set("view", "kanban");
 
-            let newRelativePathQuery = window.location.pathname + '?' + params.toString();
-            history.replaceState(null, '', newRelativePathQuery === window.location.pathname ? '?' : newRelativePathQuery);
+            const queryStr = params.toString();
+            const newRelativePathQuery = window.location.pathname + (queryStr ? "?" + queryStr : "");
+            history.replaceState(null, "", newRelativePathQuery);
         }
 
         function showLoader(text = "Authenticating with Workspace...") {
-            document.getElementById('loaderText').innerText = text;
-            document.getElementById('globalLoader').classList.add('active');
+            document.getElementById("loaderText").innerText = text;
+            document.getElementById("globalLoader").classList.add("active");
         }
 
         function hideLoader() {
-            document.getElementById('globalLoader').classList.remove('active');
+            document.getElementById("globalLoader").classList.remove("active");
         }
 
-        function showToast(message, type = 'success') {
-            let container = document.getElementById('toastContainer');
-            let toast = document.createElement('div');
+        function showToast(message, type = "success") {
+            const container = document.getElementById("toastContainer");
+            const toast = document.createElement("div");
             toast.className = `toast ${type}`;
             toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
             container.appendChild(toast);
             setTimeout(() => {
-                toast.style.animation = 'toastOut 0.35s var(--ease-out-expo) forwards';
+                toast.style.animation = "toastOut 0.35s var(--ease-out-expo) forwards";
                 setTimeout(() => toast.remove(), 350);
             }, 3000);
         }
@@ -1061,10 +1078,10 @@ HTML_TEMPLATE = """
 
         window.triggerGoogleSignIn = function() {
             if (!GOOGLE_CLIENT_ID) {
-                showToast("Google Client ID is missing. Please set GOOGLE_CLIENT_ID in Railway variables.", "error");
+                showToast("Google Client ID is missing. Set GOOGLE_CLIENT_ID in Railway variables.", "error");
                 return;
             }
-            if (typeof google !== 'undefined') {
+            if (typeof google !== "undefined") {
                 google.accounts.id.prompt((notification) => {
                     if (notification.isNotDisplayed()) {
                         showToast("Google sign-in popup was blocked by browser settings.", "error");
@@ -1077,12 +1094,12 @@ HTML_TEMPLATE = """
 
         async function handleGoogleOAuthCredential(response) {
             showLoader("Verifying Google OAuth token...");
-            let res = await fetch('/api/auth/google', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+            const res = await fetch("/api/auth/google", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ credential: response.credential })
             });
-            let data = await res.json();
+            const data = await res.json();
             hideLoader();
             if (res.ok) {
                 pendingOAuthData = data;
@@ -1096,14 +1113,13 @@ HTML_TEMPLATE = """
             try {
                 showLoader("Connecting to Apple ID...");
                 const data = await AppleID.auth.signIn();
-                let idToken = data.authorization.id_token;
-                
-                let res = await fetch('/api/auth/apple', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                const idToken = data.authorization.id_token;
+                const res = await fetch("/api/auth/apple", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ id_token: idToken })
                 });
-                let result = await res.json();
+                const result = await res.json();
                 hideLoader();
                 if (res.ok) {
                     pendingOAuthData = result;
@@ -1118,38 +1134,38 @@ HTML_TEMPLATE = """
         };
 
         function openSocialWorkspaceModal() {
-            document.getElementById('socialModalTitle').innerText = `Link ${pendingOAuthData.provider} Account`;
-            document.getElementById('socialWorkspaceModal').classList.remove('hidden');
+            document.getElementById("socialModalTitle").innerText = `Link ${pendingOAuthData.provider} Account`;
+            document.getElementById("socialWorkspaceModal").classList.remove("hidden");
         }
 
         window.closeSocialWorkspaceModal = function() {
-            document.getElementById('socialWorkspaceModal').classList.add('hidden');
+            document.getElementById("socialWorkspaceModal").classList.add("hidden");
         };
 
         window.submitSocialWorkspaceId = async function() {
-            let company_id = document.getElementById('socialWorkspaceIdInput').value.trim();
-            if(!company_id) {
+            const company_id = document.getElementById("socialWorkspaceIdInput").value.trim();
+            if (!company_id) {
                 showToast("Workspace ID is required.", "error");
                 return;
             }
             closeSocialWorkspaceModal();
             showLoader(`Authenticating with ${pendingOAuthData.provider}...`);
 
-            let res = await fetch('/api/social-login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+            const res = await fetch("/api/social-login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     oauth_token: pendingOAuthData.oauth_token,
                     company_id
                 })
             });
             hideLoader();
-            let result = await res.json();
-            if(res.ok) {
+            const result = await res.json();
+            if (res.ok) {
                 currentUser = result.user;
                 authToken = result.token;
-                localStorage.setItem('tasko_user', JSON.stringify(currentUser));
-                localStorage.setItem('tasko_token', authToken);
+                localStorage.setItem("tasko_user", JSON.stringify(currentUser));
+                localStorage.setItem("tasko_token", authToken);
                 showToast(`Successfully authenticated with ${pendingOAuthData.provider}!`);
                 checkLoginState();
             } else {
@@ -1158,18 +1174,18 @@ HTML_TEMPLATE = """
         };
 
         window.updateRefreshRateSetting = function() {
-            savedRefreshRate = document.getElementById('settingsRefreshRate').value;
-            localStorage.setItem('tasko_refresh_rate', savedRefreshRate);
+            savedRefreshRate = document.getElementById("settingsRefreshRate").value;
+            localStorage.setItem("tasko_refresh_rate", savedRefreshRate);
             restartAutoRefreshInterval();
         };
 
         function restartAutoRefreshInterval() {
             if (workspaceRefreshInterval) clearInterval(workspaceRefreshInterval);
-            let intervalMs = parseInt(savedRefreshRate) * 1000;
+            const intervalMs = parseInt(savedRefreshRate, 10) * 1000;
             workspaceRefreshInterval = setInterval(() => {
                 if (!currentUser || !authToken) return;
                 loadDashboardData();
-                if (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('handle_approvals'))) {
+                if (currentUser.role === "CEO" || (currentUser.permissions && currentUser.permissions.includes("handle_approvals"))) {
                     loadPendingUsers();
                     loadEmployeesManagement();
                 }
@@ -1177,233 +1193,248 @@ HTML_TEMPLATE = """
         }
 
         window.toggleTheme = function() {
-            document.body.classList.toggle('light-theme');
-            currentTheme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
-            localStorage.setItem('tasko_theme', currentTheme);
+            document.body.classList.toggle("light-theme");
+            currentTheme = document.body.classList.contains("light-theme") ? "light" : "dark";
+            localStorage.setItem("tasko_theme", currentTheme);
         };
 
         window.switchSection = function(sectionId, btnElement) {
-            document.querySelectorAll('.section-view').forEach(el => el.classList.add('hidden'));
-            document.getElementById(sectionId).classList.remove('hidden');
-            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-            if (btnElement) btnElement.classList.add('active');
+            document.querySelectorAll(".section-view").forEach(el => el.classList.add("hidden"));
+            document.getElementById(sectionId).classList.remove("hidden");
+            document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
+            if (btnElement) btnElement.classList.add("active");
         };
 
         window.toggleAuth = function(formType) {
-            let loginForm = document.getElementById('loginForm');
-            let signupForm = document.getElementById('signupForm');
-            let loginCompanyModal = document.getElementById('loginCompanyModal');
-            let signupCompanyModal = document.getElementById('signupCompanyModal');
+            const loginForm = document.getElementById("loginForm");
+            const signupForm = document.getElementById("signupForm");
+            const loginCompanyModal = document.getElementById("loginCompanyModal");
+            const signupCompanyModal = document.getElementById("signupCompanyModal");
 
             if (!loginForm || !signupForm) return;
 
-            loginCompanyModal.classList.add('hidden');
-            signupCompanyModal.classList.add('hidden');
+            loginCompanyModal.classList.add("hidden");
+            signupCompanyModal.classList.add("hidden");
 
-            if (formType === 'signup') {
-                loginForm.classList.add('hidden');
-                signupForm.classList.remove('hidden');
+            if (formType === "signup") {
+                loginForm.classList.add("hidden");
+                signupForm.classList.remove("hidden");
             } else {
-                signupForm.classList.add('hidden');
-                loginForm.classList.remove('hidden');
+                signupForm.classList.add("hidden");
+                loginForm.classList.remove("hidden");
             }
         };
 
         window.toggleCompanyInput = function() {
-            let role = document.getElementById('suRole').value;
-            let compInput = document.getElementById('suCompanyName');
-            if (role === 'CEO') {
-                compInput.classList.remove('hidden');
+            const role = document.getElementById("suRole").value;
+            const compInput = document.getElementById("suCompanyName");
+            if (role === "CEO") {
+                compInput.classList.remove("hidden");
             } else {
-                compInput.classList.add('hidden');
+                compInput.classList.add("hidden");
             }
         };
 
         window.nextLoginStep = function() {
-            let email = document.getElementById('loginEmail').value.trim();
-            let password = document.getElementById('loginPassword').value;
-            if(!email || !password) {
+            const email = document.getElementById("loginEmail").value.trim();
+            const password = document.getElementById("loginPassword").value;
+            if (!email || !password) {
                 showToast("Please enter both email and password.", "error");
                 return;
             }
-            document.getElementById('loginForm').classList.add('hidden');
-            document.getElementById('loginCompanyModal').classList.remove('hidden');
+            document.getElementById("loginForm").classList.add("hidden");
+            document.getElementById("loginCompanyModal").classList.remove("hidden");
         };
 
         window.backToLoginCredentials = function() {
-            document.getElementById('loginCompanyModal').classList.add('hidden');
-            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById("loginCompanyModal").classList.add("hidden");
+            document.getElementById("loginForm").classList.remove("hidden");
         };
 
         window.nextSignupStep = function() {
-            let name = document.getElementById('suName').value.trim();
-            let email = document.getElementById('suEmail').value.trim();
-            let password = document.getElementById('suPassword').value;
-            let role = document.getElementById('suRole').value;
-            let companyName = document.getElementById('suCompanyName').value.trim();
+            const name = document.getElementById("suName").value.trim();
+            const email = document.getElementById("suEmail").value.trim();
+            const password = document.getElementById("suPassword").value;
+            const role = document.getElementById("suRole").value;
+            const companyName = document.getElementById("suCompanyName").value.trim();
 
-            if(!name || !email || !password) {
+            if (!name || !email || !password) {
                 showToast("Please fill out all mandatory fields.", "error");
                 return;
             }
-            if(role === 'CEO' && !companyName) {
+            if (role === "CEO" && !companyName) {
                 showToast("Company name cannot be blank when creating a workspace.", "error");
                 return;
             }
 
-            document.getElementById('signupForm').classList.add('hidden');
-            document.getElementById('signupCompanyModal').classList.remove('hidden');
+            document.getElementById("signupForm").classList.add("hidden");
+            document.getElementById("signupCompanyModal").classList.remove("hidden");
 
-            let companyIdInput = document.getElementById('suCompanyId');
-            if(role === 'CEO') {
-                document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID (Generated)";
-                document.getElementById('signupCompanyModalSub').innerText = "A new workspace ID will be created for your company.";
-                companyIdInput.value = Math.floor(1000000000 + Math.random() * 9000000000);
+            const companyIdInput = document.getElementById("suCompanyId");
+            if (role === "CEO") {
+                document.getElementById("signupCompanyModalTitle").innerText = "Workspace Company ID (Generated)";
+                document.getElementById("signupCompanyModalSub").innerText = "A new workspace ID will be created for your company.";
+                companyIdInput.value = String(Math.floor(1000000000 + Math.random() * 9000000000));
                 companyIdInput.readOnly = true;
-                companyIdInput.style.opacity = '0.7';
+                companyIdInput.style.opacity = "0.7";
             } else {
-                document.getElementById('signupCompanyModalTitle').innerText = "Workspace Company ID";
-                document.getElementById('signupCompanyModalSub').innerText = "Enter the workspace ID provided by your company.";
-                companyIdInput.value = '';
+                document.getElementById("signupCompanyModalTitle").innerText = "Workspace Company ID";
+                document.getElementById("signupCompanyModalSub").innerText = "Enter the workspace ID provided by your company.";
+                companyIdInput.value = "";
                 companyIdInput.readOnly = false;
-                companyIdInput.style.opacity = '1';
+                companyIdInput.style.opacity = "1";
             }
         };
 
         window.backToSignupCredentials = function() {
-            document.getElementById('signupCompanyModal').classList.add('hidden');
-            document.getElementById('signupForm').classList.remove('hidden');
+            document.getElementById("signupCompanyModal").classList.add("hidden");
+            document.getElementById("signupForm").classList.remove("hidden");
         };
 
         window.registerAccount = async function() {
-            let signupData = {
-                name: document.getElementById('suName').value.trim(),
-                email: document.getElementById('suEmail').value.trim(),
-                password: document.getElementById('suPassword').value,
-                role: document.getElementById('suRole').value,
-                company_name: document.getElementById('suCompanyName').value.trim(),
-                company_id: document.getElementById('suCompanyId').value.trim()
+            const signupData = {
+                name: document.getElementById("suName").value.trim(),
+                email: document.getElementById("suEmail").value.trim(),
+                password: document.getElementById("suPassword").value,
+                role: document.getElementById("suRole").value,
+                company_name: document.getElementById("suCompanyName").value.trim(),
+                company_id: document.getElementById("suCompanyId").value.trim()
             };
-            if(signupData.role === 'Employee' && !signupData.company_id) {
+            if (signupData.role === "Employee" && !signupData.company_id) {
                 showToast("Workspace Company ID is required for employee sign up.", "error");
                 return;
             }
             showLoader("Creating your account & workspace...");
-            let res = await fetch('/api/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(signupData)});
+            const res = await fetch("/api/signup", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(signupData)
+            });
             hideLoader();
-            let result = await res.json();
-            if(res.ok) {
+            const result = await res.json();
+            if (res.ok) {
                 currentUser = result.user;
                 authToken = result.token;
-                localStorage.setItem('tasko_user', JSON.stringify(currentUser));
-                localStorage.setItem('tasko_token', authToken);
+                localStorage.setItem("tasko_user", JSON.stringify(currentUser));
+                localStorage.setItem("tasko_token", authToken);
                 showToast("Account created successfully!");
                 checkLoginState();
-            } else { showToast(result.error, "error"); }
+            } else {
+                showToast(result.error, "error");
+            }
         };
 
         window.loginFinal = async function() {
-            let data = {
-                email: document.getElementById('loginEmail').value.trim(),
-                password: document.getElementById('loginPassword').value,
-                company_id: document.getElementById('loginCompanyId').value.trim()
+            const data = {
+                email: document.getElementById("loginEmail").value.trim(),
+                password: document.getElementById("loginPassword").value,
+                company_id: document.getElementById("loginCompanyId").value.trim()
             };
-            if(!data.company_id) {
+            if (!data.company_id) {
                 showToast("Please enter the Workspace ID.", "error");
                 return;
             }
             showLoader("Signing into workspace...");
-            let res = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            const res = await fetch("/api/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data)
+            });
             hideLoader();
-            let result = await res.json();
-            if(res.ok) {
+            const result = await res.json();
+            if (res.ok) {
                 currentUser = result.user;
                 authToken = result.token;
-                localStorage.setItem('tasko_user', JSON.stringify(currentUser));
-                localStorage.setItem('tasko_token', authToken);
+                localStorage.setItem("tasko_user", JSON.stringify(currentUser));
+                localStorage.setItem("tasko_token", authToken);
                 showToast("Logged in successfully!");
                 checkLoginState();
-            } else { showToast(result.error, "error"); }
+            } else {
+                showToast(result.error, "error");
+            }
         };
 
         window.logout = function() {
             currentUser = null;
             authToken = null;
-            localStorage.removeItem('tasko_user');
-            localStorage.removeItem('tasko_token');
+            localStorage.removeItem("tasko_user");
+            localStorage.removeItem("tasko_token");
             if (workspaceRefreshInterval) clearInterval(workspaceRefreshInterval);
             if (approvalCheckInterval) clearInterval(approvalCheckInterval);
-            if (chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }  // Clears chat polling on logout[cite: 1]
-            document.getElementById('authContainer').style.display = 'flex';
-            document.getElementById('waitingContainer').classList.add('hidden');
-            document.getElementById('dashboardContainer').classList.add('hidden');
-            toggleAuth('login');
+            if (chatPollInterval) {
+                clearInterval(chatPollInterval);
+                chatPollInterval = null;
+            }
+            document.getElementById("authContainer").style.display = "flex";
+            document.getElementById("waitingContainer").classList.add("hidden");
+            document.getElementById("dashboardContainer").classList.add("hidden");
+            toggleAuth("login");
         };
 
         async function checkLoginState() {
-            if(!currentUser || !authToken) return;
+            if (!currentUser || !authToken) return;
 
-            let statusRes = await apiFetch('/api/check-status');
+            const statusRes = await apiFetch("/api/check-status");
             if (!statusRes.ok) return;
-            let statusData = await statusRes.json();
-            
-            if(statusData.status === 'Kicked') {
+            const statusData = await statusRes.json();
+
+            if (statusData.status === "Kicked") {
                 showToast("You have been removed from the workspace by the CEO.", "error");
                 logout();
                 return;
             }
 
-            if(currentUser.role === 'Employee') {
-                if(statusData.status === 'Pending') {
-                    document.getElementById('authContainer').style.display = 'none';
-                    document.getElementById('dashboardContainer').classList.add('hidden');
-                    document.getElementById('waitingContainer').classList.remove('hidden');
-                    if(!approvalCheckInterval) {
+            if (currentUser.role === "Employee") {
+                if (statusData.status === "Pending") {
+                    document.getElementById("authContainer").style.display = "none";
+                    document.getElementById("dashboardContainer").classList.add("hidden");
+                    document.getElementById("waitingContainer").classList.remove("hidden");
+                    if (!approvalCheckInterval) {
                         approvalCheckInterval = setInterval(checkLoginState, 5000);
                     }
                     return;
-                } else if(statusData.status === 'Approved') {
-                    if(approvalCheckInterval) clearInterval(approvalCheckInterval);
-                    currentUser.status = 'Approved';
+                } else if (statusData.status === "Approved") {
+                    if (approvalCheckInterval) clearInterval(approvalCheckInterval);
+                    currentUser.status = "Approved";
                     currentUser.company_name = statusData.company_name;
                     currentUser.stance = statusData.stance;
                     currentUser.permissions = statusData.permissions || [];
-                    localStorage.setItem('tasko_user', JSON.stringify(currentUser));
+                    localStorage.setItem("tasko_user", JSON.stringify(currentUser));
                 }
             }
 
-            document.getElementById('authContainer').style.display = 'none';
-            document.getElementById('waitingContainer').classList.add('hidden');
-            let dash = document.getElementById('dashboardContainer');
-            dash.classList.remove('hidden');
-            
-            document.getElementById('sidebarUserName').innerText = currentUser.name;
-            document.getElementById('sidebarUserRole').innerText = currentUser.role;
-            document.getElementById('sidebarUserStance').innerText = currentUser.stance ? `Stance: ${currentUser.stance}` : '';
-            document.getElementById('brandCompanyName').innerText = currentUser.company_name || "Tasko Workspace";
-            
-            document.getElementById('settingsCompanyName').value = currentUser.company_name || "MyCorp";
-            document.getElementById('settingsCompanyId').value = currentUser.company_id;
+            document.getElementById("authContainer").style.display = "none";
+            document.getElementById("waitingContainer").classList.add("hidden");
+            const dash = document.getElementById("dashboardContainer");
+            dash.classList.remove("hidden");
 
-            let isCeo = currentUser.role === 'CEO';
-            let permissions = currentUser.permissions || [];
+            document.getElementById("sidebarUserName").innerText = currentUser.name;
+            document.getElementById("sidebarUserRole").innerText = currentUser.role;
+            document.getElementById("sidebarUserStance").innerText = currentUser.stance ? `Stance: ${currentUser.stance}` : "";
+            document.getElementById("brandCompanyName").innerText = currentUser.company_name || "Tasko Workspace";
 
-            document.querySelectorAll('.ceo-only').forEach(el => {
-                if(isCeo) el.classList.remove('hidden');
-                else el.classList.add('hidden');
+            document.getElementById("settingsCompanyName").value = currentUser.company_name || "MyCorp";
+            document.getElementById("settingsCompanyId").value = currentUser.company_id;
+
+            const isCeo = currentUser.role === "CEO";
+            const permissions = currentUser.permissions || [];
+
+            document.querySelectorAll(".ceo-only").forEach(el => {
+                if (isCeo) el.classList.remove("hidden");
+                else el.classList.add("hidden");
             });
 
-            if(!isCeo) {
-                document.getElementById('navAssign').classList.toggle('hidden', !permissions.includes('assign_tasks'));
-                document.getElementById('navRoutinesConfig').classList.toggle('hidden', !permissions.includes('config_routines'));
-                document.getElementById('navApprovals').classList.toggle('hidden', !permissions.includes('handle_approvals'));
-                document.getElementById('navLogs').classList.toggle('hidden', !permissions.includes('view_logs'));
+            if (!isCeo) {
+                document.getElementById("navAssign").classList.toggle("hidden", !permissions.includes("assign_tasks"));
+                document.getElementById("navRoutinesConfig").classList.toggle("hidden", !permissions.includes("config_routines"));
+                document.getElementById("navApprovals").classList.toggle("hidden", !permissions.includes("handle_approvals"));
+                document.getElementById("navLogs").classList.toggle("hidden", !permissions.includes("view_logs"));
             }
 
-            if(isCeo || permissions.includes('handle_approvals') || permissions.includes('assign_tasks') || permissions.includes('config_routines')) {
+            if (isCeo || permissions.includes("handle_approvals") || permissions.includes("assign_tasks") || permissions.includes("config_routines")) {
                 loadEmployeesDropdown();
             }
-            if(isCeo || permissions.includes('handle_approvals')) {
+            if (isCeo || permissions.includes("handle_approvals")) {
                 loadPendingUsers();
                 loadEmployeesManagement();
             }
@@ -1416,37 +1447,40 @@ HTML_TEMPLATE = """
         }
 
         window.updateCompanyName = async function() {
-            let newName = document.getElementById('settingsCompanyName').value.trim();
-            if(!newName) { showToast("Company name cannot be empty.", "error"); return; }
+            const newName = document.getElementById("settingsCompanyName").value.trim();
+            if (!newName) {
+                showToast("Company name cannot be empty.", "error");
+                return;
+            }
             showLoader("Updating company name...");
-            let res = await apiFetch('/api/admin/update-company', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({company_name: newName})
+            const res = await apiFetch("/api/admin/update-company", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_name: newName })
             });
             hideLoader();
-            if(res.ok) {
+            if (res.ok) {
                 currentUser.company_name = newName;
-                localStorage.setItem('tasko_user', JSON.stringify(currentUser));
-                document.getElementById('brandCompanyName').innerText = newName;
+                localStorage.setItem("tasko_user", JSON.stringify(currentUser));
+                document.getElementById("brandCompanyName").innerText = newName;
                 showToast("Company name updated successfully!");
             } else {
-                let err = await res.json();
+                const err = await res.json();
                 showToast(err.error || "Unauthorized", "error");
             }
         };
 
         async function loadPendingUsers() {
-            let res = await apiFetch('/api/admin/pending-users');
+            const res = await apiFetch("/api/admin/pending-users");
             if (!res.ok) return;
-            let data = await res.json();
-            let container = document.getElementById('pendingUsersList');
-            if(data.pending_users.length === 0) {
+            const data = await res.json();
+            const container = document.getElementById("pendingUsersList");
+            if (data.pending_users.length === 0) {
                 container.innerHTML = "<span style='color:var(--subtext);'>No pending users.</span>";
                 return;
             }
             container.innerHTML = data.pending_users.map(u => {
-                let key = u.email.replace(/[^a-zA-Z0-9]/g, '_');
+                const key = u.email.replace(/[^a-zA-Z0-9]/g, "_");
                 return `
                 <div style="background:var(--input-bg); padding:16px; margin:12px 0; border-radius:12px; border:1px solid var(--border-color);">
                     <div style="margin-bottom:8px;"><strong>${escapeHtml(u.name)}</strong> (${escapeHtml(u.email)})</div>
@@ -1468,29 +1502,29 @@ HTML_TEMPLATE = """
                         <label><input type="checkbox" id="perm_assign_${key}" checked> Assign Tasks</label>
                         <label><input type="checkbox" id="perm_logs_${key}" checked> View Activity Logs</label>
                     </div>
-                    <button type="button" onclick="window.approveUser('${u.email}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
+                    <button type="button" onclick="window.approveUser('${escapeHtml(u.email)}')" style="width:auto; padding:8px 16px; font-size:0.85em;">Approve Employee</button>
                 </div>`;
-            }).join('');
+            }).join("");
         }
 
         window.approveUser = async function(email) {
-            let emailKey = email.replace(/[^a-zA-Z0-9]/g, '_');
-            let stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
-            let stance = stanceDropdown === 'Custom' ? document.getElementById(`customStance_${emailKey}`).value.trim() : stanceDropdown;
-            if(!stance) stance = "Team Member";
+            const emailKey = email.replace(/[^a-zA-Z0-9]/g, "_");
+            const stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
+            let stance = stanceDropdown === "Custom" ? document.getElementById(`customStance_${emailKey}`).value.trim() : stanceDropdown;
+            if (!stance) stance = "Team Member";
 
-            let permissions = [];
-            if(document.getElementById(`perm_approvals_${emailKey}`).checked) permissions.push('handle_approvals');
-            if(document.getElementById(`perm_kick_${emailKey}`).checked) permissions.push('kick_employees');
-            if(document.getElementById(`perm_routines_${emailKey}`).checked) permissions.push('config_routines');
-            if(document.getElementById(`perm_stances_${emailKey}`).checked) permissions.push('modify_stances');
-            if(document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push('assign_tasks');
-            if(document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push('view_logs');
+            const permissions = [];
+            if (document.getElementById(`perm_approvals_${emailKey}`).checked) permissions.push("handle_approvals");
+            if (document.getElementById(`perm_kick_${emailKey}`).checked) permissions.push("kick_employees");
+            if (document.getElementById(`perm_routines_${emailKey}`).checked) permissions.push("config_routines");
+            if (document.getElementById(`perm_stances_${emailKey}`).checked) permissions.push("modify_stances");
+            if (document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push("assign_tasks");
+            if (document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push("view_logs");
 
             showLoader("Approving employee...");
-            let res = await apiFetch('/api/admin/approve-user', {
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
+            const res = await apiFetch("/api/admin/approve-user", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, stance, permissions })
             });
             hideLoader();
@@ -1500,180 +1534,191 @@ HTML_TEMPLATE = """
                 loadEmployeesManagement();
                 loadEmployeesDropdown();
             } else {
-                let err = await res.json();
+                const err = await res.json();
                 showToast(err.error || "Approval failed", "error");
             }
         };
 
         async function loadEmployeesManagement() {
-            let res = await apiFetch('/api/admin/employees-list');
+            const res = await apiFetch("/api/admin/employees-list");
             if (!res.ok) return;
-            let data = await res.json();
-            let container = document.getElementById('employeesManageList');
-            if(data.employees.length === 0) {
+            const data = await res.json();
+            const container = document.getElementById("employeesManageList");
+            if (data.employees.length === 0) {
                 container.innerHTML = "<span style='color:var(--subtext);'>No active employees.</span>";
                 return;
             }
             container.innerHTML = data.employees.map(e => `
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color);">
                     <div>
-                        <span>${escapeHtml(e.name)} (${escapeHtml(e.email)}) • <b style="color:var(--accent);">${escapeHtml(e.stance || e.role)}</b></span>
-                        <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${escapeHtml((e.permissions || []).join(', ') || 'None')}</div>
+                        <span>${escapeHtml(e.name)} (${escapeHtml(e.email)}) - <b style="color:var(--accent);">${escapeHtml(e.stance || e.role)}</b></span>
+                        <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${escapeHtml((e.permissions || []).join(", ") || "None")}</div>
                     </div>
-                    ${(e.role !== 'CEO' && (currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('kick_employees')))) ? `<button type="button" onclick="window.kickEmployee('${e.email}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ''}
+                    ${(e.role !== "CEO" && (currentUser.role === "CEO" || (currentUser.permissions && currentUser.permissions.includes("kick_employees")))) ? `<button type="button" onclick="window.kickEmployee('${escapeHtml(e.email)}')" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ""}
                 </div>
-            `).join('');
+            `).join("");
         }
 
         window.kickEmployee = async function(email) {
-            if(!confirm("Are you sure you want to kick this employee?")) return;
+            if (!confirm("Are you sure you want to kick this employee?")) return;
             showLoader("Removing employee...");
-            let res = await apiFetch('/api/admin/kick-employee', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({email})
+            const res = await apiFetch("/api/admin/kick-employee", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email })
             });
             hideLoader();
-            if(res.ok) {
+            if (res.ok) {
                 showToast("Employee removed from workspace.", "info");
                 loadEmployeesManagement();
                 loadEmployeesDropdown();
                 loadDashboardData();
             } else {
-                let err = await res.json();
+                const err = await res.json();
                 showToast(err.error || "Failed to kick employee.", "error");
             }
         };
 
         async function loadEmployeesDropdown() {
-            let res = await apiFetch('/api/admin/employees-list');
+            const res = await apiFetch("/api/admin/employees-list");
             if (!res.ok) return;
-            let data = await res.json();
-            let opts = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${escapeHtml(e.name)}">${escapeHtml(e.name)} (${escapeHtml(e.stance || e.role)})</option>`).join('');
-            document.getElementById('taskAssigneeSelect').innerHTML = opts;
-            document.getElementById('routineAssigneeSelect').innerHTML = opts;
+            const data = await res.json();
+            const opts = '<option value="">Select Employee</option>' + data.employees.map(e => `<option value="${escapeHtml(e.name)}">${escapeHtml(e.name)} (${escapeHtml(e.stance || e.role)})</option>`).join("");
+            document.getElementById("taskAssigneeSelect").innerHTML = opts;
+            document.getElementById("routineAssigneeSelect").innerHTML = opts;
         }
 
         window.createTask = async function() {
-            let data = {
-                title: document.getElementById('taskTitle').value.trim(),
-                assigned_to: document.getElementById('taskAssigneeSelect').value,
-                deadline: document.getElementById('taskDeadline').value,
-                priority: document.getElementById('taskPriority').value
+            const data = {
+                title: document.getElementById("taskTitle").value.trim(),
+                assigned_to: document.getElementById("taskAssigneeSelect").value,
+                deadline: document.getElementById("taskDeadline").value,
+                priority: document.getElementById("taskPriority").value
             };
-            if(!data.title || !data.assigned_to) {
+            if (!data.title || !data.assigned_to) {
                 showToast("Please fill out task title and select an assignee.", "error");
                 return;
             }
             showLoader("Assigning task...");
-            let res = await apiFetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            const res = await apiFetch("/api/tasks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data)
+            });
             hideLoader();
             if (res.ok) {
-                document.getElementById('taskTitle').value = '';
-                document.getElementById('taskDeadline').value = '';
+                document.getElementById("taskTitle").value = "";
+                document.getElementById("taskDeadline").value = "";
                 showToast("Task assigned successfully!");
                 loadDashboardData();
             } else {
-                let err = await res.json();
+                const err = await res.json();
                 showToast(err.error || "Failed to assign task", "error");
             }
         };
 
         window.createDailyRoutine = async function() {
-            let data = {
-                title: document.getElementById('routineTitle').value.trim(),
-                assigned_to: document.getElementById('routineAssigneeSelect').value
+            const data = {
+                title: document.getElementById("routineTitle").value.trim(),
+                assigned_to: document.getElementById("routineAssigneeSelect").value
             };
-            if(!data.title || !data.assigned_to) {
+            if (!data.title || !data.assigned_to) {
                 showToast("Please fill out routine title and select an assignee.", "error");
                 return;
             }
             showLoader("Configuring routine...");
-            let res = await apiFetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            const res = await apiFetch("/api/routines", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data)
+            });
             hideLoader();
             if (res.ok) {
-                document.getElementById('routineTitle').value = '';
+                document.getElementById("routineTitle").value = "";
                 showToast("Daily routine configured successfully!");
                 loadDashboardData();
             } else {
-                let err = await res.json();
+                const err = await res.json();
                 showToast(err.error || "Failed to add routine", "error");
             }
         };
 
         async function loadDashboardData() {
-            let res = await apiFetch('/api/data');
+            const res = await apiFetch("/api/data");
             if (!res.ok) return;
-            let data = await res.json();
-            
-            cachedTasks = data.tasks.filter(t => currentUser.role === 'CEO' || t.assigned_to === currentUser.name);
+            const data = await res.json();
+
+            cachedTasks = data.tasks.filter(t => currentUser.role === "CEO" || t.assigned_to === currentUser.name);
             renderTasks(cachedTasks);
 
-            let routinesContainer = document.getElementById('dailyRoutinesList');
-            let configRoutinesContainer = document.getElementById('configRoutinesList');
+            const routinesContainer = document.getElementById("dailyRoutinesList");
+            const configRoutinesContainer = document.getElementById("configRoutinesList");
 
-            if(configRoutinesContainer) {
-                configRoutinesContainer.innerHTML = data.routines.length === 0 ? "<span style='color:var(--subtext);'>No daily routines configured.</span>" :
-                    data.routines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color);"><b>${escapeHtml(r.title)}</b> • Assigned to: ${escapeHtml(r.assigned_to)}</div>`).join('');
+            if (configRoutinesContainer) {
+                configRoutinesContainer.innerHTML = data.routines.length === 0
+                    ? "<span style='color:var(--subtext);'>No daily routines configured.</span>"
+                    : data.routines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color);"><b>${escapeHtml(r.title)}</b> - Assigned to: ${escapeHtml(r.assigned_to)}</div>`).join("");
             }
 
-            let viewableRoutines = data.routines.filter(r => currentUser.role === 'CEO' || r.assigned_to === currentUser.name);
-            if(viewableRoutines.length === 0) {
+            const viewableRoutines = data.routines.filter(r => currentUser.role === "CEO" || r.assigned_to === currentUser.name);
+            if (viewableRoutines.length === 0) {
                 routinesContainer.innerHTML = "<span style='color:var(--subtext);'>No daily routines for today.</span>";
             } else {
                 routinesContainer.innerHTML = viewableRoutines.map(r => {
-                    let isDoneToday = r.today_status === 'Completed';
-                    let statusBadge = isDoneToday ? '<span class="badge-done"><span class="pulsing-dot"></span>Done Today ✓</span>' : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Today</span>';
-                    let actionHtml = (currentUser.role !== 'CEO' && !isDoneToday) ? `
-                        <div style="margin-top:12px;">
-                            <button type="button" onclick="window.markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button>
-                        </div>` : '';
+                    const isDoneToday = r.today_status === "Completed";
+                    const statusBadge = isDoneToday
+                        ? '<span class="badge-done"><span class="pulsing-dot"></span>Done Today</span>'
+                        : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Today</span>';
+                    const actionHtml = (currentUser.role !== "CEO" && !isDoneToday)
+                        ? `<div style="margin-top:12px;"><button type="button" onclick="window.markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button></div>`
+                        : "";
 
                     return `
                         <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <div>
                                     <strong style="font-size:1.05em;">${escapeHtml(r.title)}</strong>
-                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${escapeHtml(r.assigned_to)} • Resets daily</div>
+                                    <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${escapeHtml(r.assigned_to)} - Resets daily</div>
                                 </div>
                                 <div>${statusBadge}</div>
                             </div>
                             ${actionHtml}
                         </div>
                     `;
-                }).join('');
+                }).join("");
             }
 
-            let historyBody = document.getElementById('historyTableBody');
-            historyBody.innerHTML = data.history.length === 0 ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>` : 
-                data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${escapeHtml(h.time)}</td><td>${escapeHtml(h.action)}</td></tr>`).join('');
+            const historyBody = document.getElementById("historyTableBody");
+            historyBody.innerHTML = data.history.length === 0
+                ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>`
+                : data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${escapeHtml(h.time)}</td><td>${escapeHtml(h.action)}</td></tr>`).join("");
         }
 
         function renderTasks(tasks) {
-            let searchTerm = document.getElementById('filterSearch').value.toLowerCase();
-            let statusFilter = document.getElementById('filterStatus').value;
-            let priorityFilter = document.getElementById('filterPriority').value;
-            let sortBy = document.getElementById('sortBy').value;
+            const searchTerm = document.getElementById("filterSearch").value.toLowerCase();
+            const statusFilter = document.getElementById("filterStatus").value;
+            const priorityFilter = document.getElementById("filterPriority").value;
+            const sortBy = document.getElementById("sortBy").value;
 
-            let filtered = tasks.filter(t => {
-                let matchesSearch = t.title.toLowerCase().includes(searchTerm) || t.assigned_to.toLowerCase().includes(searchTerm);
-                let matchesStatus = !statusFilter || t.status === statusFilter;
-                let matchesPriority = !priorityFilter || t.priority === priorityFilter;
+            const filtered = tasks.filter(t => {
+                const matchesSearch = t.title.toLowerCase().includes(searchTerm) || t.assigned_to.toLowerCase().includes(searchTerm);
+                const matchesStatus = !statusFilter || t.status === statusFilter;
+                const matchesPriority = !priorityFilter || t.priority === priorityFilter;
                 return matchesSearch && matchesStatus && matchesPriority;
             });
 
             filtered.sort((a, b) => {
-                if (sortBy === 'priority') {
-                    const rank = { 'High': 3, 'Medium': 2, 'Low': 1 };
+                if (sortBy === "priority") {
+                    const rank = { High: 3, Medium: 2, Low: 1 };
                     return (rank[b.priority] || 2) - (rank[a.priority] || 2);
-                } else if (sortBy === 'deadline') {
-                    return (a.deadline || '').localeCompare(b.deadline || '');
+                } else if (sortBy === "deadline") {
+                    return (a.deadline || "").localeCompare(b.deadline || "");
                 } else {
                     return b.id - a.id;
                 }
             });
 
-            if (currentTaskView === 'kanban') {
+            if (currentTaskView === "kanban") {
                 renderKanbanView(filtered);
             } else {
                 renderListView(filtered);
@@ -1681,18 +1726,20 @@ HTML_TEMPLATE = """
         }
 
         function renderListView(tasks) {
-            let container = document.getElementById('myTasksList');
+            const container = document.getElementById("myTasksList");
             if (tasks.length === 0) {
                 container.innerHTML = "<span style='color:var(--subtext);'>No tasks match your filters.</span>";
                 return;
             }
             container.innerHTML = tasks.map(t => {
-                let statusBadge = t.status === 'Completed' ? '<span class="badge-done"><span class="pulsing-dot"></span>Completed</span>' : 
-                                  t.status === 'Failed' ? '<span class="badge-failed"><span class="pulsing-dot"></span>Failed</span>' : 
-                                  '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Proof</span>';
-                
-                let actionHtml = '';
-                if(currentUser.role !== 'CEO') {
+                const statusBadge = t.status === "Completed"
+                    ? '<span class="badge-done"><span class="pulsing-dot"></span>Completed</span>'
+                    : t.status === "Failed"
+                        ? '<span class="badge-failed"><span class="pulsing-dot"></span>Failed</span>'
+                        : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Proof</span>';
+
+                let actionHtml = "";
+                if (currentUser.role !== "CEO") {
                     actionHtml = `
                         <div style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
                             <label style="font-size:0.85em; display:block; margin-bottom:8px; color:var(--subtext);">Upload Proof Image for AI Verification:</label>
@@ -1708,47 +1755,50 @@ HTML_TEMPLATE = """
                             <div>
                                 <strong style="font-size:1.1em;">${escapeHtml(t.title)}</strong>
                                 <div style="font-size:0.85em; color:var(--subtext); margin-top:6px;">
-                                    Assigned to: ${escapeHtml(t.assigned_to)} • Priority: ${escapeHtml(t.priority)} • Deadline: ${escapeHtml(t.deadline || 'None')}
+                                    Assigned to: ${escapeHtml(t.assigned_to)} - Priority: ${escapeHtml(t.priority)} - Deadline: ${escapeHtml(t.deadline || "None")}
                                 </div>
                             </div>
                             <div>${statusBadge}</div>
                         </div>
-                        ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:10px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${escapeHtml(t.ai_comment)}</div>` : ''}
+                        ${t.ai_comment ? `<div style="margin-top:12px; font-size:0.85em; color:var(--subtext); background:var(--card-bg); padding:12px; border-radius:10px; border: 1px solid var(--border-color);"><strong>AI Feedback:</strong> ${escapeHtml(t.ai_comment)}</div>` : ""}
                         ${actionHtml}
                     </div>
                 `;
-            }).join('');
+            }).join("");
         }
 
         function renderKanbanView(tasks) {
-            let pendingTasks = tasks.filter(t => t.status === 'Pending');
-            let completedTasks = tasks.filter(t => t.status === 'Completed');
-            let failedTasks = tasks.filter(t => t.status === 'Failed');
+            const pendingTasks = tasks.filter(t => t.status === "Pending");
+            const completedTasks = tasks.filter(t => t.status === "Completed");
+            const failedTasks = tasks.filter(t => t.status === "Failed");
 
-            document.getElementById('countPending').innerText = pendingTasks.length;
-            document.getElementById('countCompleted').innerText = completedTasks.length;
-            document.getElementById('countFailed').innerText = failedTasks.length;
+            document.getElementById("countPending").innerText = pendingTasks.length;
+            document.getElementById("countCompleted").innerText = completedTasks.length;
+            document.getElementById("countFailed").innerText = failedTasks.length;
 
-            document.getElementById('kanbanPending').innerHTML = pendingTasks.length === 0 ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>' :
-                pendingTasks.map(t => kanbanCardHtml(t)).join('');
-            document.getElementById('kanbanCompleted').innerHTML = completedTasks.length === 0 ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>' :
-                completedTasks.map(t => kanbanCardHtml(t)).join('');
-            document.getElementById('kanbanFailed').innerHTML = failedTasks.length === 0 ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>' :
-                failedTasks.map(t => kanbanCardHtml(t)).join('');
+            document.getElementById("kanbanPending").innerHTML = pendingTasks.length === 0
+                ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>'
+                : pendingTasks.map(t => kanbanCardHtml(t)).join("");
+            document.getElementById("kanbanCompleted").innerHTML = completedTasks.length === 0
+                ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>'
+                : completedTasks.map(t => kanbanCardHtml(t)).join("");
+            document.getElementById("kanbanFailed").innerHTML = failedTasks.length === 0
+                ? '<div style="color:var(--subtext); font-size:0.85em; text-align:center; padding:20px;">No tasks</div>'
+                : failedTasks.map(t => kanbanCardHtml(t)).join("");
         }
 
         function kanbanCardHtml(t) {
-            let canDrag = currentUser.role === 'CEO' || (currentUser.permissions && currentUser.permissions.includes('assign_tasks'));
+            const canDrag = currentUser.role === "CEO" || (currentUser.permissions && currentUser.permissions.includes("assign_tasks"));
             return `
-                <div class="kanban-card" ${canDrag ? 'draggable="true" ondragstart="window.dragTaskStart(event, ' + t.id + ')"' : ''}>
+                <div class="kanban-card" ${canDrag ? `draggable="true" ondragstart="window.dragTaskStart(event, ${t.id})"` : ""}>
                     <div style="font-weight:600; font-size:0.95em; margin-bottom:6px;">${escapeHtml(t.title)}</div>
-                    <div style="font-size:0.75em; color:var(--subtext); margin-bottom:8px;">Assigned: ${escapeHtml(t.assigned_to)} • ${escapeHtml(t.priority)}</div>
-                    ${!canDrag && t.status === 'Pending' ? `
+                    <div style="font-size:0.75em; color:var(--subtext); margin-bottom:8px;">Assigned: ${escapeHtml(t.assigned_to)} - ${escapeHtml(t.priority)}</div>
+                    ${(!canDrag && t.status === "Pending") ? `
                         <div style="margin-top:8px; border-top:1px solid var(--border-color); padding-top:8px;">
                             <input type="file" id="proofFile_${t.id}" accept="image/*" style="font-size:0.75em; margin-bottom:6px; padding:4px;" onchange="window.handleFileSelect(${t.id}, this)">
                             <button type="button" onclick="window.submitProof(${t.id})" style="background:#059669; padding:6px 12px; font-size:0.8em; width:100%;">Submit Proof</button>
                         </div>
-                    ` : ''}
+                    ` : ""}
                 </div>
             `;
         }
@@ -1756,7 +1806,7 @@ HTML_TEMPLATE = """
         window.submitProof = async function(taskId) {
             let file = selectedProofFiles[taskId];
             if (!file) {
-                let fileInput = document.getElementById(`proofFile_${taskId}`);
+                const fileInput = document.getElementById(`proofFile_${taskId}`);
                 if (fileInput && fileInput.files && fileInput.files[0]) file = fileInput.files[0];
             }
             if (!file) {
@@ -1764,25 +1814,25 @@ HTML_TEMPLATE = """
                 return;
             }
 
-            let reader = new FileReader();
-            reader.onload = async function () {
-                let base64Image = reader.result.split(',')[1];
+            const reader = new FileReader();
+            reader.onload = async function() {
+                const base64Image = reader.result.split(",")[1];
                 showLoader("Analyzing proof with Gemini AI...");
                 try {
-                    let res = await apiFetch('/api/tasks/verify-proof', {
-                        method: 'POST', 
-                        headers: {'Content-Type': 'application/json'}, 
-                        body: JSON.stringify({task_id: taskId, image: base64Image, mime_type: file.type})
+                    const res = await apiFetch("/api/tasks/verify-proof", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ task_id: taskId, image: base64Image, mime_type: file.type })
                     });
                     hideLoader();
-                    let result = await res.json();
-                    if (res.ok) { 
-                        showToast("AI Verification Complete: " + result.status); 
-                        loadDashboardData(); 
+                    const result = await res.json();
+                    if (res.ok) {
+                        showToast("AI Verification Complete: " + result.status);
+                        loadDashboardData();
                     } else {
                         showToast("Error: " + (result.error || "Verification failed"), "error");
                     }
-                } catch(err) {
+                } catch (err) {
                     hideLoader();
                     showToast("Network error while submitting proof.", "error");
                 }
@@ -1792,42 +1842,43 @@ HTML_TEMPLATE = """
 
         window.markRoutineDone = async function(routineId) {
             showLoader("Updating routine status...");
-            let res = await apiFetch('/api/routines/complete', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({routine_id: routineId})
+            const res = await apiFetch("/api/routines/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ routine_id: routineId })
             });
             hideLoader();
             if (res.ok) {
                 showToast("Daily routine marked completed!");
                 loadDashboardData();
             } else {
-                let err = await res.json();
+                const err = await res.json();
                 showToast(err.error || "Failed to update routine.", "error");
             }
         };
 
         async function loadWorkspaceChat() {
-            if(!currentUser || !authToken) return;
-            let res = await apiFetch('/api/chat');
+            if (!currentUser || !authToken) return;
+            const res = await apiFetch("/api/chat");
             if (!res.ok) return;
-            let data = await res.json();
-            let box = document.getElementById('chatBox');
-            box.innerHTML = data.messages.length === 0 ? '<i style="color:var(--subtext);">No messages yet. Say hi!</i>' :
-                data.messages.map(m => `<div class="chat-message"><strong style="color:var(--accent);">${escapeHtml(m.sender)}:</strong> ${escapeHtml(m.text)} <span style="font-size:0.75em; color:var(--subtext); float:right;">${escapeHtml(m.time)}</span></div>`).join('');
+            const data = await res.json();
+            const box = document.getElementById("chatBox");
+            box.innerHTML = data.messages.length === 0
+                ? '<i style="color:var(--subtext);">No messages yet. Say hi!</i>'
+                : data.messages.map(m => `<div class="chat-message"><strong style="color:var(--accent);">${escapeHtml(m.sender)}:</strong> ${escapeHtml(m.text)} <span style="font-size:0.75em; color:var(--subtext); float:right;">${escapeHtml(m.time)}</span></div>`).join("");
             box.scrollTop = box.scrollHeight;
         }
 
         window.sendChatMessage = async function() {
-            let input = document.getElementById('chatInput');
-            let text = input.value.trim();
-            if(!text) return;
-            await apiFetch('/api/chat', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({text})
+            const input = document.getElementById("chatInput");
+            const text = input.value.trim();
+            if (!text) return;
+            await apiFetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text })
             });
-            input.value = '';
+            input.value = "";
             loadWorkspaceChat();
         };
     </script>
@@ -1841,6 +1892,7 @@ HTML_TEMPLATE = """
 def landing_page():
     return render_template("landing.html")
 
+
 @app.route("/app")
 def index():
     return render_template_string(
@@ -1848,6 +1900,7 @@ def index():
         google_client_id=GOOGLE_CLIENT_ID,
         apple_client_id=APPLE_CLIENT_ID
     )
+
 
 @app.route("/favicon.ico")
 def favicon():
@@ -2188,11 +2241,11 @@ def verify_proof():
                     response_schema=TaskProofEvaluation,
                 ),
             )
-            
+
             evaluation = json.loads(response.text)
             passed = evaluation.get("passed", False)
             reason = evaluation.get("reason", "No evaluation reason provided.")
-            
+
             status = "Completed" if passed else "Failed"
             ai_comment = f"{'Passed' if passed else 'Failed'}: {reason}"
 
@@ -2291,7 +2344,7 @@ def kick_employee():
         if target["role"] == "CEO":
             return jsonify({"error": "Cannot kick the workspace CEO."}), 400
 
-        # Mark user as Kicked instead of immediate deletion so check_status can notify them[cite: 1]
+        # Flag as Kicked instead of deleting right away so polling sees 'Kicked' and shows the toast
         conn.execute("UPDATE users SET status = 'Kicked' WHERE email = ?", (email,))
         log_history(conn, admin["company_id"], f"Employee {target['name']} was kicked from the workspace by {admin['name']}")
         return jsonify({"success": True})
