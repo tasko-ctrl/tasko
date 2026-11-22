@@ -65,6 +65,8 @@ DB_PATH = os.path.join(DATA_DIR, "tasko.db")
 # They live on the volume next to the database, so they survive redeploys.
 PROOFS_DIR = os.path.join(DATA_DIR, "proofs")
 os.makedirs(PROOFS_DIR, exist_ok=True)
+# Product documentation that ships with the code (not user data, so not on the volume).
+DOCS_DIR = os.path.join(BASE_DIR, "docs")
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +485,19 @@ def require_auth(f):
     return decorated
 
 
+def require_permission(perm):
+    """Decorator: require_auth must be stacked below it. Checks a specific permission."""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            user = request.current_user
+            if not has_permission(user, perm):
+                return jsonify({"error": "Permission denied."}), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
 def has_permission(user, perm):
     if user.get("status") != "Approved":
         return False
@@ -498,6 +513,15 @@ def add_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    # CSP: allow only our own origin plus the Google & Apple auth SDKs we load.
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' https://accounts.google.com https://appleid.cdn-apple.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self';",
+    )
     # Only send HSTS when the request really arrived over HTTPS (proxy sets X-Forwarded-Proto).
     if request.is_secure:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
@@ -510,6 +534,21 @@ def add_security_headers(response):
 def healthz():
     """Tiny endpoint for Railway health checks - does NOT touch the database."""
     return jsonify({"ok": True})
+
+
+@app.route("/documentation")
+def documentation():
+    """Download the product documentation (kept next to the code, in docs/)."""
+    path = os.path.join(DOCS_DIR, "Tasko-Documentation.docx")
+    if not os.path.exists(path):
+        return jsonify({"error": "Documentation is not available yet."}), 404
+    return send_file(
+        path,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name="Tasko Documentation.docx",
+        max_age=0,
+    )
 
 
 @app.errorhandler(404)
@@ -3994,10 +4033,9 @@ def workspace_chat():
 # ---------------------------------------------------------------------------
 @app.route("/api/admin/pending-users", methods=["GET"])
 @require_auth
+@require_permission("handle_approvals")
 def get_pending_users():
     user = request.current_user
-    if not has_permission(user, "handle_approvals"):
-        return jsonify({"error": "Permission denied."}), 403
 
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM users WHERE company_id = ? AND status = 'Pending'", (str(user["company_id"]),)).fetchall()
@@ -4006,10 +4044,9 @@ def get_pending_users():
 
 @app.route("/api/admin/approve-user", methods=["POST"])
 @require_auth
+@require_permission("handle_approvals")
 def approve_user():
     admin = request.current_user
-    if not has_permission(admin, "handle_approvals"):
-        return jsonify({"error": "Permission denied."}), 403
 
     data = get_body()
     email = clean_text(data.get("email"), 254).lower()
@@ -4057,11 +4094,10 @@ def get_employees_list():
 
 @app.route("/api/admin/update-employee", methods=["POST"])
 @require_auth
+@require_permission("modify_stances")
 def update_employee():
     """Change an employee's stance and/or permissions after they were approved."""
     admin = request.current_user
-    if not has_permission(admin, "modify_stances"):
-        return jsonify({"error": "Permission denied."}), 403
 
     data = get_body()
     email = clean_text(data.get("email"), 254).lower()
@@ -4101,10 +4137,9 @@ def update_employee():
 
 @app.route("/api/admin/kick-employee", methods=["POST"])
 @require_auth
+@require_permission("kick_employees")
 def kick_employee():
     admin = request.current_user
-    if not has_permission(admin, "kick_employees"):
-        return jsonify({"error": "Permission denied."}), 403
 
     email = clean_text(get_body().get("email"), 254).lower()
     if email == admin["email"]:
