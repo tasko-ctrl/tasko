@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>document.documentElement.classList.add("js");</script>
     <title>Tasko Workspace - Accountability That Runs Itself</title>
     <meta name="description" content="Tasko is a team workspace that combines task assignment, daily routines, team chat and AI-verified photo proof so accountability runs itself.">
     <meta name="theme-color" content="#07090e">
@@ -284,9 +285,233 @@
                 padding: 26px 20px;
             }
         }
+        /* =================================================================
+           MOTION LAYER - the landing page should feel alive.
+           ================================================================= */
+        :root {
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+            --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes textFlow {
+            0% { background-position: 0% center; }
+            100% { background-position: 250% center; }
+        }
+        @keyframes floatY {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+        @keyframes orbFloat {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(36px, -28px) scale(1.08); }
+            66% { transform: translate(-26px, 22px) scale(0.94); }
+        }
+        @keyframes spinSlow {
+            to { transform: rotate(360deg); }
+        }
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        @keyframes navDrop {
+            from { opacity: 0; transform: translateY(-18px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes heroRise {
+            from { opacity: 0; transform: translateY(26px); filter: blur(8px); }
+            to { opacity: 1; transform: translateY(0); filter: blur(0); }
+        }
+        @keyframes underlineGrow {
+            from { transform: scaleX(0); }
+            to { transform: scaleX(1); }
+        }
+        @keyframes badgePulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(94, 106, 210, 0.35); }
+            50% { box-shadow: 0 0 0 6px rgba(94, 106, 210, 0); }
+        }
+        @keyframes shimmer {
+            0%, 70% { transform: translateX(-140%) skewX(-20deg); }
+            100% { transform: translateX(240%) skewX(-20deg); }
+        }
+
+        body { position: relative; overflow-x: hidden; }
+        body::before, body::after {
+            content: ""; position: fixed; border-radius: 50%; pointer-events: none;
+            z-index: 0; filter: blur(90px); opacity: 0.5;
+        }
+        body::before {
+            width: 560px; height: 560px; top: -180px; left: -120px;
+            background: radial-gradient(circle, rgba(94, 106, 210, 0.5), transparent 68%);
+            animation: orbFloat 20s ease-in-out infinite;
+        }
+        body::after {
+            width: 480px; height: 480px; bottom: -200px; right: -140px;
+            background: radial-gradient(circle, rgba(52, 211, 153, 0.22), transparent 68%);
+            animation: orbFloat 26s ease-in-out reverse infinite;
+        }
+        header, main, footer { position: relative; z-index: 1; }
+
+        /* Navbar */
+        .navbar { animation: navDrop 0.7s var(--ease-out-expo) backwards; }
+        .brand img { animation: floatY 6s ease-in-out infinite; transition: transform 0.4s var(--ease-spring); }
+        .brand:hover img { transform: rotate(-8deg) scale(1.12); }
+        .brand-badge { animation: badgePulse 3s ease-in-out infinite; }
+        .brand > span:first-of-type {
+            background: linear-gradient(100deg, #ffffff 0%, #c7ccff 40%, #8f9bff 70%, #ffffff 100%);
+            background-size: 220% auto;
+            -webkit-background-clip: text; background-clip: text;
+            color: transparent;
+            animation: textFlow 8s linear infinite;
+        }
+        ::selection { background: rgba(94, 106, 210, 0.45); color: #fff; }
+        .nav-links a { position: relative; transition: color 0.25s var(--ease-out-expo); }
+        .nav-links a::after {
+            content: ""; position: absolute; left: 0; right: 0; bottom: -4px; height: 2px;
+            background: linear-gradient(90deg, var(--accent), #9ba5ff);
+            border-radius: 2px; transform: scaleX(0); transform-origin: left center;
+            transition: transform 0.3s var(--ease-out-expo);
+        }
+        .nav-links a:hover::after { transform: scaleX(1); }
+
+        /* Buttons */
+        .btn-primary, .btn-secondary { position: relative; overflow: hidden; }
+        .btn-primary {
+            background-image: linear-gradient(115deg, var(--accent), #7c89f5, var(--accent));
+            background-size: 200% auto;
+            animation: gradientShift 6s linear infinite;
+            transition: transform 0.25s var(--ease-spring), box-shadow 0.25s, background-position 0.4s;
+        }
+        .btn-primary:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 14px 34px rgba(94, 106, 210, 0.55); }
+        .btn-primary::after, .btn-secondary::after {
+            content: ""; position: absolute; top: 0; left: -140%; width: 60%; height: 100%;
+            background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transform: skewX(-20deg); transition: left 0.7s var(--ease-out-expo); pointer-events: none;
+        }
+        .btn-primary:hover::after, .btn-secondary:hover::after { left: 150%; }
+        .btn-secondary { transition: transform 0.25s var(--ease-spring), border-color 0.25s, box-shadow 0.25s; }
+        .btn-secondary:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35); }
+
+        /* Hero */
+        .hero { position: relative; }
+        .hero::before, .hero::after {
+            content: ""; position: absolute; border-radius: 50%; filter: blur(70px);
+            pointer-events: none; z-index: 0;
+        }
+        .hero > * { position: relative; z-index: 1; }
+        .hero::before {
+            width: 420px; height: 420px; top: -40px; left: 50%; margin-left: -430px;
+            background: radial-gradient(circle, rgba(94, 106, 210, 0.4), transparent 70%);
+            animation: orbFloat 15s ease-in-out infinite;
+        }
+        .hero::after {
+            width: 360px; height: 360px; top: 40px; left: 50%; margin-left: 80px;
+            background: radial-gradient(circle, rgba(52, 211, 153, 0.22), transparent 70%);
+            animation: orbFloat 19s ease-in-out reverse infinite;
+        }
+        .eyebrow { animation: heroRise 0.8s var(--ease-out-expo) backwards; }
+        .hero h1 {
+            background: linear-gradient(100deg, #ffffff 0%, #c7ccff 22%, #8f9bff 45%, #ffffff 68%, #c7ccff 100%);
+            background-size: 250% auto;
+            -webkit-background-clip: text; background-clip: text;
+            color: transparent;
+            animation: textFlow 9s linear infinite, heroRise 0.9s var(--ease-out-expo) 0.1s backwards;
+        }
+        .hero p { animation: heroRise 0.9s var(--ease-out-expo) 0.2s backwards; }
+        .hero-cta { animation: heroRise 0.9s var(--ease-out-expo) 0.3s backwards; }
+
+        /* Section titles with a drawn underline */
+        h2.section-title { position: relative; display: inline-block; }
+        h2.section-title::after {
+            content: ""; position: absolute; left: 0; bottom: -6px; width: 64px; height: 3px;
+            border-radius: 3px; background: linear-gradient(90deg, var(--accent), #9ba5ff);
+            transform: scaleX(0); transform-origin: left center;
+        }
+        section.is-visible h2.section-title::after,
+        .reveal.is-visible h2.section-title::after { animation: underlineGrow 0.7s var(--ease-out-expo) 0.15s forwards; }
+
+        /* Feature / content cards */
+        .card, .creator-subcard {
+            position: relative; overflow: hidden;
+            transition: transform 0.35s var(--ease-out-expo), border-color 0.35s, box-shadow 0.35s;
+        }
+        .card::before, .creator-subcard::before {
+            content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+            background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), rgba(94, 106, 210, 0.18), transparent 60%);
+            opacity: 0; transition: opacity 0.35s var(--ease-out-expo);
+        }
+        .card:hover::before, .creator-subcard:hover::before { opacity: 1; }
+        .card:hover, .creator-subcard:hover {
+            transform: translateY(-6px);
+            border-color: rgba(94, 106, 210, 0.55);
+            box-shadow: 0 22px 50px -18px rgba(94, 106, 210, 0.45);
+        }
+        .feature-icon { display: inline-block; transition: transform 0.4s var(--ease-spring); }
+        .card:hover .feature-icon { transform: translateY(-4px) rotate(-10deg) scale(1.18); }
+
+        /* Audience list */
+        .audience-list { position: relative; padding-left: 6px; }
+        .audience-list::before {
+            content: ""; position: absolute; left: 22px; top: 6px; bottom: 6px; width: 2px;
+            background: linear-gradient(180deg, rgba(94, 106, 210, 0.6), rgba(94, 106, 210, 0.05));
+            transform: scaleY(0); transform-origin: top center;
+        }
+        #use-cases.is-visible .audience-list::before,
+        .reveal.is-visible .audience-list::before { animation: underlineGrow 1.1s var(--ease-out-expo) 0.2s forwards; }
+        .audience-num { transition: transform 0.35s var(--ease-spring), box-shadow 0.35s; }
+        .audience-item:hover .audience-num {
+            transform: scale(1.15) rotate(-6deg);
+            box-shadow: 0 0 0 6px rgba(94, 106, 210, 0.12), 0 8px 22px rgba(94, 106, 210, 0.35);
+        }
+        .audience-item { transition: transform 0.3s var(--ease-out-expo); }
+        .audience-item:hover { transform: translateX(6px); }
+
+        /* Creator card: breathing gradient + soft glow */
+        .creator-card {
+            position: relative; overflow: hidden;
+            background-size: 220% 220%;
+            animation: gradientShift 14s ease-in-out infinite;
+            box-shadow: 0 24px 70px -30px rgba(94, 106, 210, 0.5);
+            transition: box-shadow 0.4s var(--ease-out-expo), transform 0.4s var(--ease-out-expo);
+        }
+        .creator-card:hover { box-shadow: 0 30px 90px -28px rgba(94, 106, 210, 0.7); transform: translateY(-4px); }
+        .creator-card .eyebrow { animation: textShimmer 4s ease-in-out infinite; }
+        .creator-cta { transition: transform 0.3s var(--ease-spring), color 0.25s, gap 0.3s; }
+        .creator-cta:hover { transform: translateX(6px); gap: 14px; }
+
+        footer { animation: heroRise 0.8s var(--ease-out-expo) backwards; }
+
+        /* Scroll progress */
+        #landingScrollProgress {
+            position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 1000;
+            background: linear-gradient(90deg, var(--accent), #9ba5ff, #34d399, var(--accent));
+            background-size: 300% 100%;
+            transform: scaleX(0); transform-origin: left center;
+            animation: gradientShift 5s linear infinite;
+            box-shadow: 0 0 14px rgba(94, 106, 210, 0.7);
+            transition: transform 0.12s linear;
+        }
+
+        /* Scroll reveal (only when JS is available) */
+        html.js .reveal {
+            opacity: 0; transform: translateY(30px) scale(0.985); filter: blur(6px);
+            transition: opacity 0.8s var(--ease-out-expo), transform 0.8s var(--ease-out-expo), filter 0.8s var(--ease-out-expo);
+            transition-delay: var(--reveal-delay, 0ms);
+            will-change: opacity, transform;
+        }
+        html.js .reveal.is-visible { opacity: 1; transform: none; filter: blur(0); }
+
+        @media (prefers-reduced-motion: reduce) {
+            html.js .reveal { opacity: 1 !important; transform: none !important; filter: none !important; transition: none !important; }
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
     </style>
 </head>
 <body>
+    <div id="landingScrollProgress"></div>
     <header class="navbar">
         <a href="/" class="brand">
             <img src="/favicon.ico" alt="Tasko Logo">
@@ -316,21 +541,21 @@
         </section>
 
         <section id="features">
-            <div class="eyebrow">Why Choose Tasko</div>
-            <h2 class="section-title">Accountability that runs itself.</h2>
+            <div class="eyebrow reveal">Why Choose Tasko</div>
+            <h2 class="section-title reveal">Accountability that runs itself.</h2>
             <div class="grid-3">
-                <div class="card">
-                    <div style="font-size: 1.4rem;">✨</div>
+                <div class="card reveal">
+                    <div class="feature-icon" style="font-size: 1.4rem;">✨</div>
                     <h3>AI-driven proof validation</h3>
                     <p>Every submitted proof is checked against the task brief by Gemini in seconds, with a clear verdict and the reason behind it.</p>
                 </div>
-                <div class="card">
-                    <div style="font-size: 1.4rem;">💬</div>
+                <div class="card reveal">
+                    <div class="feature-icon" style="font-size: 1.4rem;">💬</div>
                     <h3>Built-in team chat</h3>
                     <p>One shared workspace conversation for the whole team, kept right next to the tasks and routines it belongs to.</p>
                 </div>
-                <div class="card">
-                    <div style="font-size: 1.4rem;">🔒</div>
+                <div class="card reveal">
+                    <div class="feature-icon" style="font-size: 1.4rem;">🔒</div>
                     <h3>Granular Security</h3>
                     <p>Executive permission controls, JWT sessions, per-workspace data isolation, and employee role/stance management built into the core.</p>
                 </div>
@@ -338,17 +563,17 @@
         </section>
 
         <section id="use-cases">
-            <div class="eyebrow">Target Audiences</div>
-            <h2 class="section-title">Built for teams that value output over excuses.</h2>
+            <div class="eyebrow reveal">Target Audiences</div>
+            <h2 class="section-title reveal">Built for teams that value output over excuses.</h2>
             <div class="audience-list">
-                <div class="audience-item">
+                <div class="audience-item reveal">
                     <div class="audience-num">1</div>
                     <div>
                         <h3>Engineering & Dev Teams</h3>
                         <p>Track daily standup proofs, code deliverables, and sprint milestones effortlessly.</p>
                     </div>
                 </div>
-                <div class="audience-item">
+                <div class="audience-item reveal">
                     <div class="audience-num">2</div>
                     <div>
                         <h3>Operations & Agencies</h3>
@@ -359,7 +584,7 @@
         </section>
 
         <section id="creator">
-            <div class="creator-card">
+            <div class="creator-card reveal">
                 <div class="eyebrow">About the Creator</div>
                 <h2>Built by Bhavik and Tarun</h2>
                 <p class="creator-intro">
@@ -401,5 +626,73 @@
         © 2026 Tasko Workspace. All rights reserved.
         <div style="margin-top:8px; font-size:0.8rem;">Questions, feedback or data requests: <a href="mailto:taskofeedback@gmail.com" style="color:#7c89f5;">taskofeedback@gmail.com</a></div>
     </footer>
+
+    <script>
+        (function () {
+            const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            const reveals = Array.from(document.querySelectorAll(".reveal"));
+
+            // Stagger items that belong to the same group.
+            document.querySelectorAll(".grid-3, .audience-list").forEach((group) => {
+                Array.from(group.querySelectorAll(":scope > .reveal")).forEach((el, index) => {
+                    el.style.setProperty("--reveal-delay", `${index * 110}ms`);
+                });
+            });
+
+            if (!("IntersectionObserver" in window) || reduceMotion) {
+                reveals.forEach((el) => el.classList.add("is-visible"));
+                document.querySelectorAll("section").forEach((el) => el.classList.add("is-visible"));
+            } else {
+                const revealFully = (el) => {
+                    el.classList.add("is-visible");
+                    // Drop the reveal class after the transition so hover effects
+                    // are not slowed down by the reveal transition/delay.
+                    setTimeout(() => el.classList.remove("reveal"), 1500);
+                };
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        if (!entry.isIntersecting) return;
+                        revealFully(entry.target);
+                        observer.unobserve(entry.target);
+                    });
+                }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+
+                reveals.forEach((el) => observer.observe(el));
+                document.querySelectorAll("section").forEach((el) => observer.observe(el));
+
+                // Safety net: never leave content permanently hidden.
+                setTimeout(() => {
+                    document.querySelectorAll(".reveal:not(.is-visible)").forEach(revealFully);
+                }, 5000);
+            }
+
+            // Scroll progress bar.
+            const bar = document.getElementById("landingScrollProgress");
+            const updateBar = () => {
+                if (!bar) return;
+                const doc = document.documentElement;
+                const max = doc.scrollHeight - doc.clientHeight;
+                bar.style.transform = `scaleX(${max > 0 ? Math.min(1, Math.max(0, doc.scrollTop / max)) : 0})`;
+            };
+            document.addEventListener("scroll", updateBar, { passive: true });
+            window.addEventListener("resize", updateBar);
+            updateBar();
+
+            if (reduceMotion) return;
+
+            // Soft spotlight that follows the pointer across cards.
+            let frame = null;
+            document.addEventListener("pointermove", (event) => {
+                const card = event.target.closest(".card, .creator-subcard");
+                if (!card || frame) return;
+                frame = requestAnimationFrame(() => {
+                    frame = null;
+                    const rect = card.getBoundingClientRect();
+                    card.style.setProperty("--mx", `${event.clientX - rect.left}px`);
+                    card.style.setProperty("--my", `${event.clientY - rect.top}px`);
+                });
+            }, { passive: true });
+        })();
+    </script>
 </body>
 </html>

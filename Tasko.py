@@ -606,7 +606,7 @@ HTML_TEMPLATE = r"""
             100% { transform: rotate(360deg); }
         }
         
-        .section-view { animation: fadeInScale 0.4s var(--ease-out-expo) forwards; }
+        .section-view { animation: sectionEnter 0.55s var(--ease-out-expo) backwards; }
 
         .card { background: var(--card-bg); padding: 32px; border-radius: 16px; margin-bottom: 24px; box-shadow: 0 10px 35px -8px rgba(0,0,0,0.5); border: 1px solid var(--border-color); transition: all 0.3s var(--ease-out-expo); position: relative; overflow: hidden; z-index: 10; }
         .card:hover { border-color: rgba(94, 106, 210, 0.4); transform: translateY(-3px); box-shadow: 0 16px 45px -10px rgba(94, 106, 210, 0.2); }
@@ -681,6 +681,304 @@ HTML_TEMPLATE = r"""
         #feedbackModal { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(8px); z-index: 99999; display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.2s var(--ease-out-expo), visibility 0.2s var(--ease-out-expo); }
         #feedbackModal.active { opacity: 1; visibility: visible; pointer-events: auto; }
 
+        /* =================================================================
+           MOTION LAYER - every surface gets a little life.
+           ================================================================= */
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        @keyframes sectionEnter {
+            from { opacity: 0; transform: translateY(18px) scale(0.985); filter: blur(6px); }
+            to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-18px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes rowIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes popIn {
+            0% { opacity: 0; transform: scale(0.94) translateY(8px); }
+            60% { opacity: 1; transform: scale(1.01) translateY(0); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        @keyframes modalPop {
+            from { opacity: 0; transform: translateY(14px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes rippleAnim {
+            from { transform: scale(0); opacity: 0.45; }
+            to { transform: scale(2.6); opacity: 0; }
+        }
+        @keyframes floatY {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+        @keyframes orbDrift {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(40px, -30px) scale(1.08); }
+            66% { transform: translate(-30px, 24px) scale(0.95); }
+        }
+        @keyframes textShimmer {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        @keyframes activeGlow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(94, 106, 210, 0.35); }
+            50% { box-shadow: 0 0 0 6px rgba(94, 106, 210, 0); }
+        }
+        @keyframes badgeSheen {
+            0%, 70% { transform: translateX(-120%); }
+            100% { transform: translateX(220%); }
+        }
+        @keyframes progressSlide {
+            0% { transform: scaleX(0.02); opacity: 0.4; }
+            60% { opacity: 0.9; }
+            100% { transform: scaleX(0.85); opacity: 0.6; }
+        }
+
+        /* Ambient glow behind the whole app */
+        body {
+            background-image:
+                radial-gradient(1100px 620px at 10% -14%, rgba(94, 106, 210, 0.16), transparent 62%),
+                radial-gradient(900px 520px at 108% 8%, rgba(124, 137, 245, 0.10), transparent 58%);
+            background-attachment: fixed;
+        }
+        .light-theme body,
+        body.light-theme {
+            background-image:
+                radial-gradient(1100px 620px at 10% -14%, rgba(94, 106, 210, 0.10), transparent 62%),
+                radial-gradient(900px 520px at 108% 8%, rgba(94, 106, 210, 0.07), transparent 58%);
+        }
+
+        /* Custom scrollbars */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(94, 106, 210, 0.55), rgba(124, 137, 245, 0.35));
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, var(--accent), var(--accent-hover)); background-clip: padding-box; }
+
+        /* Top reading-progress bar */
+        #appScrollProgress {
+            position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 100000;
+            background: linear-gradient(90deg, var(--accent), #9ba5ff, #34d399, var(--accent));
+            background-size: 300% 100%;
+            transform: scaleX(0); transform-origin: left center;
+            animation: gradientShift 5s linear infinite;
+            transition: transform 0.15s linear;
+            box-shadow: 0 0 14px rgba(94, 106, 210, 0.7);
+            pointer-events: none;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            animation: slideInLeft 0.6s var(--ease-out-expo) backwards;
+            background-image: linear-gradient(180deg, rgba(94, 106, 210, 0.06), transparent 38%);
+        }
+        .sidebar-menu .nav-item { animation: fadeInDown 0.5s var(--ease-out-expo) backwards; }
+        .sidebar-menu .nav-item:nth-child(1) { animation-delay: 0.05s; }
+        .sidebar-menu .nav-item:nth-child(2) { animation-delay: 0.09s; }
+        .sidebar-menu .nav-item:nth-child(3) { animation-delay: 0.13s; }
+        .sidebar-menu .nav-item:nth-child(4) { animation-delay: 0.17s; }
+        .sidebar-menu .nav-item:nth-child(5) { animation-delay: 0.21s; }
+        .sidebar-menu .nav-item:nth-child(6) { animation-delay: 0.25s; }
+        .sidebar-menu .nav-item:nth-child(7) { animation-delay: 0.29s; }
+        .sidebar-menu .nav-item:nth-child(8) { animation-delay: 0.33s; }
+        .nav-item::before {
+            content: ""; position: absolute; inset: 0; border-radius: inherit;
+            background: radial-gradient(140px circle at var(--mx, 50%) var(--my, 50%), rgba(94, 106, 210, 0.22), transparent 65%);
+            opacity: 0; transition: opacity 0.3s var(--ease-out-expo); pointer-events: none;
+        }
+        .nav-item:hover::before { opacity: 1; }
+        .nav-item.active { animation: activeGlow 2.6s ease-in-out infinite; }
+        .sidebar-brand { animation: fadeInDown 0.5s var(--ease-out-expo), floatY 6s ease-in-out 0.6s infinite; }
+        #brandCompanyName {
+            background: linear-gradient(90deg, var(--text-color) 10%, var(--accent-hover) 55%, var(--text-color) 100%);
+            background-size: 220% auto;
+            -webkit-background-clip: text; background-clip: text;
+            color: transparent;
+            animation: gradientShift 9s linear infinite;
+        }
+        #sidebarUserName, #sidebarUserRole, #sidebarUserStance { animation: fadeInDown 0.5s var(--ease-out-expo) backwards; }
+        #sidebarUserRole { animation-delay: 0.08s; }
+        #sidebarUserStance { animation-delay: 0.14s; }
+
+        /* Cards + soft spotlight + animated gradient border */
+        .card { animation: fadeInScale 0.55s var(--ease-out-expo) backwards; }
+        .card::after {
+            content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+            background: linear-gradient(130deg, rgba(94, 106, 210, 0), rgba(94, 106, 210, 0.55), rgba(124, 137, 245, 0.18), rgba(94, 106, 210, 0));
+            background-size: 200% 200%;
+            animation: gradientShift 7s linear infinite;
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask-composite: exclude;
+            opacity: 0; transition: opacity 0.4s var(--ease-out-expo); pointer-events: none;
+        }
+        .card:hover::after { opacity: 1; }
+        .card:hover { transform: translateY(-4px); }
+
+        /* Buttons: sheen sweep + ripple + colour drift */
+        button::after {
+            content: ""; position: absolute; top: 0; left: -130%; width: 55%; height: 100%;
+            background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+            transform: skewX(-20deg); transition: left 0.65s var(--ease-out-expo);
+            pointer-events: none;
+        }
+        button:hover::after { left: 145%; }
+        button:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 3px; }
+        .ripple {
+            position: absolute; border-radius: 50%; pointer-events: none;
+            background: rgba(255, 255, 255, 0.45);
+            transform: scale(0); animation: rippleAnim 0.65s ease-out forwards;
+        }
+
+        /* Inputs */
+        input:hover, select:hover, textarea:hover { border-color: rgba(94, 106, 210, 0.55); }
+        input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.2), 0 10px 25px rgba(0, 0, 0, 0.25); }
+
+        /* Auth panels: stagger every field in */
+        #loginForm > *, #signupForm > *, #loginCompanyModal > *, #signupCompanyModal > * {
+            animation: fadeInScale 0.5s var(--ease-out-expo) backwards;
+        }
+        #loginForm > *:nth-child(1), #signupForm > *:nth-child(1) { animation-delay: 0.03s; }
+        #loginForm > *:nth-child(2), #signupForm > *:nth-child(2) { animation-delay: 0.06s; }
+        #loginForm > *:nth-child(3), #signupForm > *:nth-child(3) { animation-delay: 0.09s; }
+        #loginForm > *:nth-child(4), #signupForm > *:nth-child(4) { animation-delay: 0.12s; }
+        #loginForm > *:nth-child(5), #signupForm > *:nth-child(5) { animation-delay: 0.15s; }
+        #loginForm > *:nth-child(6), #signupForm > *:nth-child(6) { animation-delay: 0.18s; }
+        #loginForm > *:nth-child(7), #signupForm > *:nth-child(7) { animation-delay: 0.21s; }
+        #loginForm > *:nth-child(8), #signupForm > *:nth-child(8) { animation-delay: 0.24s; }
+        #loginForm > *:nth-child(n+9), #signupForm > *:nth-child(n+9) { animation-delay: 0.27s; }
+
+        /* Auth / waiting screens get drifting aurora orbs */
+        #authContainer, #waitingContainer { overflow: hidden; }
+        #authContainer::before, #authContainer::after,
+        #waitingContainer::before, #waitingContainer::after {
+            content: ""; position: absolute; border-radius: 50%; filter: blur(70px);
+            pointer-events: none; z-index: 0; opacity: 0.55;
+        }
+        #authContainer::before, #waitingContainer::before {
+            width: 460px; height: 460px; top: -120px; left: -80px;
+            background: radial-gradient(circle, rgba(94, 106, 210, 0.55), transparent 68%);
+            animation: orbDrift 16s ease-in-out infinite;
+        }
+        #authContainer::after, #waitingContainer::after {
+            width: 380px; height: 380px; bottom: -140px; right: -60px;
+            background: radial-gradient(circle, rgba(52, 211, 153, 0.28), transparent 68%);
+            animation: orbDrift 21s ease-in-out reverse infinite;
+        }
+        #authContainer > .card, #waitingContainer > * { position: relative; z-index: 1; }
+
+        /* Task cards */
+        .task-card {
+            position: relative; overflow: hidden;
+            animation: fadeInScale 0.5s var(--ease-out-expo) backwards;
+            transition: transform 0.3s var(--ease-out-expo), border-color 0.3s var(--ease-out-expo), box-shadow 0.3s var(--ease-out-expo);
+        }
+        .task-card:nth-child(1) { animation-delay: 0.02s; }
+        .task-card:nth-child(2) { animation-delay: 0.06s; }
+        .task-card:nth-child(3) { animation-delay: 0.10s; }
+        .task-card:nth-child(4) { animation-delay: 0.14s; }
+        .task-card:nth-child(5) { animation-delay: 0.18s; }
+        .task-card:nth-child(6) { animation-delay: 0.22s; }
+        .task-card:nth-child(n+7) { animation-delay: 0.26s; }
+        .task-card::before, .kanban-card::before {
+            content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+            background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), rgba(94, 106, 210, 0.16), transparent 55%);
+            opacity: 0; transition: opacity 0.35s var(--ease-out-expo);
+        }
+        .task-card:hover::before, .kanban-card:hover::before { opacity: 1; }
+        .task-card:hover { transform: translateY(-3px); border-color: rgba(94, 106, 210, 0.5) !important; box-shadow: 0 18px 42px -12px rgba(0, 0, 0, 0.45); }
+
+        /* Kanban */
+        .kanban-col { transition: transform 0.3s var(--ease-out-expo), border-color 0.3s var(--ease-out-expo), box-shadow 0.3s var(--ease-out-expo); }
+        .kanban-col:hover { transform: translateY(-3px); border-color: rgba(94, 106, 210, 0.4); box-shadow: 0 14px 36px -14px rgba(0, 0, 0, 0.5); }
+        .kanban-col-header span { transition: transform 0.3s var(--ease-spring); }
+        .kanban-col:hover .kanban-col-header span { transform: scale(1.12); }
+        .kanban-card {
+            position: relative; overflow: hidden;
+            animation: popIn 0.4s var(--ease-out-expo) backwards;
+        }
+        .kanban-cards > .kanban-card:nth-child(1) { animation-delay: 0.02s; }
+        .kanban-cards > .kanban-card:nth-child(2) { animation-delay: 0.06s; }
+        .kanban-cards > .kanban-card:nth-child(3) { animation-delay: 0.10s; }
+        .kanban-cards > .kanban-card:nth-child(n+4) { animation-delay: 0.14s; }
+        .kanban-card:hover { transform: translateY(-3px) rotate(-0.35deg); }
+
+        /* Badges: gentle ambient sheen */
+        .badge-done, .badge-pending, .badge-failed { position: relative; overflow: hidden; }
+        .badge-done::after, .badge-pending::after, .badge-failed::after {
+            content: ""; position: absolute; top: 0; left: 0; width: 35%; height: 100%;
+            background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+            animation: badgeSheen 4.5s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        /* Tables */
+        tbody tr { animation: rowIn 0.45s var(--ease-out-expo) backwards; }
+        tbody tr:nth-child(1) { animation-delay: 0.02s; }
+        tbody tr:nth-child(2) { animation-delay: 0.05s; }
+        tbody tr:nth-child(3) { animation-delay: 0.08s; }
+        tbody tr:nth-child(4) { animation-delay: 0.11s; }
+        tbody tr:nth-child(5) { animation-delay: 0.14s; }
+        tbody tr:nth-child(6) { animation-delay: 0.17s; }
+        tbody tr:nth-child(7) { animation-delay: 0.20s; }
+        tbody tr:nth-child(n+8) { animation-delay: 0.23s; }
+        tbody tr:hover { transform: translateX(3px); }
+
+        /* Chat */
+        .chat-message {
+            background: var(--card-bg); border: 1px solid var(--border-color);
+            padding: 10px 14px; border-radius: 12px;
+            animation: popIn 0.35s var(--ease-out-expo) backwards;
+        }
+        .chat-message:hover { border-color: rgba(94, 106, 210, 0.45); }
+
+        /* Loader */
+        .spinner-ring {
+            animation: spinLoader 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite, activeGlow 1.8s ease-in-out infinite;
+        }
+        #loaderText { animation: textShimmer 1.6s ease-in-out infinite; letter-spacing: 0.02em; }
+        #globalLoader.active { animation: none; }
+
+        /* Toasts get a draining progress line */
+        .toast { position: relative; overflow: hidden; }
+        .toast::after {
+            content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+            background: linear-gradient(90deg, var(--accent), #9ba5ff);
+            transform-origin: left center; animation: toastDrain 3s linear forwards;
+        }
+        .toast.success::after { background: linear-gradient(90deg, #059669, #34d399); }
+        .toast.error::after { background: linear-gradient(90deg, #dc2626, #f87171); }
+        @keyframes toastDrain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+        /* Modals */
+        #feedbackModal .card, #socialWorkspaceModal .card { animation: modalPop 0.42s var(--ease-spring) backwards; }
+        .cmd-box { animation: modalPop 0.35s var(--ease-spring) backwards; }
+        #cmdPaletteModal.active .cmd-box { animation: modalPop 0.35s var(--ease-spring); }
+        #feedbackModal.active .card { animation: modalPop 0.42s var(--ease-spring); }
+        .cmd-item { position: relative; overflow: hidden; }
+        .cmd-item::before {
+            content: ""; position: absolute; left: 0; top: 20%; bottom: 20%; width: 2px;
+            background: var(--accent); border-radius: 2px; transform: scaleY(0);
+            transition: transform 0.2s var(--ease-out-expo);
+        }
+        .cmd-item.selected::before, .cmd-item:hover::before { transform: scaleY(1); }
+
+        /* Section headings get a tiny lift */
+        h2 { animation: fadeInDown 0.5s var(--ease-out-expo) backwards; }
+
         /* --- Small screens: turn the sidebar into a scrollable top bar --- */
         @media (max-width: 900px) {
             body { flex-direction: column; height: auto; min-height: 100vh; overflow: auto; }
@@ -706,6 +1004,7 @@ HTML_TEMPLATE = r"""
 </head>
 <body>
     <div id="toastContainer"></div>
+    <div id="appScrollProgress"></div>
     <div id="globalLoader">
         <div class="spinner-ring"></div>
         <div style="font-size:0.9em; font-weight:500; color:var(--text-color); letter-spacing:-0.01em;" id="loaderText">Authenticating with Workspace...</div>
@@ -1282,7 +1581,58 @@ HTML_TEMPLATE = r"""
         // Never leave the loading overlay stuck because of a failed request.
         window.addEventListener("unhandledrejection", () => hideLoader());
 
+        function initMotionEffects() {
+            const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+            // Ripple on every button click.
+            document.addEventListener("click", (event) => {
+                if (reduceMotion) return;
+                const btn = event.target.closest("button");
+                if (!btn || btn.disabled) return;
+                const rect = btn.getBoundingClientRect();
+                const size = Math.max(rect.width, rect.height);
+                if (!size) return;
+                const ripple = document.createElement("span");
+                ripple.className = "ripple";
+                ripple.style.width = ripple.style.height = `${size}px`;
+                ripple.style.left = `${event.clientX - rect.left - size / 2}px`;
+                ripple.style.top = `${event.clientY - rect.top - size / 2}px`;
+                btn.appendChild(ripple);
+                setTimeout(() => ripple.remove(), 700);
+            });
+
+            // Cards follow the pointer with a faint spotlight.
+            if (!reduceMotion) {
+                let frame = null;
+                document.addEventListener("pointermove", (event) => {
+                    const card = event.target.closest(".card, .kanban-card, .task-card, .nav-item");
+                    if (!card || frame) return;
+                    frame = requestAnimationFrame(() => {
+                        frame = null;
+                        const rect = card.getBoundingClientRect();
+                        card.style.setProperty("--mx", `${event.clientX - rect.left}px`);
+                        card.style.setProperty("--my", `${event.clientY - rect.top}px`);
+                    });
+                }, { passive: true });
+            }
+
+            // Top scroll-progress bar.
+            const bar = document.getElementById("appScrollProgress");
+            const scroller = document.querySelector(".main-content");
+            const updateProgress = () => {
+                if (!bar) return;
+                const el = scroller || document.scrollingElement;
+                if (!el) return;
+                const max = el.scrollHeight - el.clientHeight;
+                bar.style.transform = `scaleX(${max > 0 ? Math.min(1, Math.max(0, el.scrollTop / max)) : 0})`;
+            };
+            if (scroller) scroller.addEventListener("scroll", updateProgress, { passive: true });
+            window.addEventListener("resize", updateProgress);
+            updateProgress();
+        }
+
         window.addEventListener("DOMContentLoaded", () => {
+            initMotionEffects();
             if (currentTheme === "light") {
                 document.body.classList.add("light-theme");
             }
@@ -1677,7 +2027,12 @@ HTML_TEMPLATE = r"""
 
         window.switchSection = function(sectionId, btnElement) {
             document.querySelectorAll(".section-view").forEach(el => el.classList.add("hidden"));
-            document.getElementById(sectionId).classList.remove("hidden");
+            const target = document.getElementById(sectionId);
+            target.classList.remove("hidden");
+            // Replay the entrance animation every time a section is shown.
+            target.style.animation = "none";
+            void target.offsetWidth;
+            target.style.animation = "";
             document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
             if (btnElement) btnElement.classList.add("active");
         };
@@ -2584,7 +2939,7 @@ HTML_TEMPLATE = r"""
                 ` : (proofButton ? `<div style="margin-top:12px;">${proofButton}</div>` : "");
 
                 return `
-                    <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
+                    <div class="task-card" style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
                             <div>
                                 <strong style="font-size:1.1em;">${escapeHtml(t.title)}</strong>
