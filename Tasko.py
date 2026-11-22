@@ -112,6 +112,24 @@ MIN_PASSWORD_LENGTH = 8
 EMAIL_RE = re.compile(r"^[^@\s'\"<>\\]+@[^@\s'\"<>\\]+\.[^@\s'\"<>\\]+$")
 APPLE_ISSUER = "https://appleid.apple.com"
 
+# --- Phone verification (SMS codes are sent and checked by Twilio Verify) ---
+# Set these 3 variables in Railway to switch the feature on. If any is missing, the phone card stays hidden.
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+TWILIO_VERIFY_SERVICE_SID = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "").strip()
+SMS_ENABLED = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_VERIFY_SERVICE_SID)
+# Numbers typed without a country code get this one added (e.g. 9876543210 -> +919876543210).
+DEFAULT_COUNTRY_CODE = os.environ.get("DEFAULT_COUNTRY_CODE", "+91").strip() or "+91"
+# Only numbers starting with these are accepted (stops people running up your SMS bill with expensive
+# foreign numbers). Comma-separated. Set to "" to allow every country.
+ALLOWED_PHONE_PREFIXES = [x.strip() for x in os.environ.get("ALLOWED_PHONE_PREFIXES", "+91").split(",") if x.strip()]
+# Hard cap on how many SMS the whole app may send in 24 hours (a safety net for your wallet).
+try:
+    SMS_DAILY_LIMIT = int(os.environ.get("SMS_DAILY_LIMIT", "200"))
+except ValueError:
+    SMS_DAILY_LIMIT = 200
+PHONE_RE = re.compile(r"^\+[1-9]\d{7,14}$")
+
 
 # --- Structured AI Output Pydantic Schema ---
 class TaskProofEvaluation(BaseModel):
@@ -223,12 +241,30 @@ def init_db():
                 text TEXT NOT NULL,
                 time TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS sms_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                ts INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sms_log_ts ON sms_log (ts);
             CREATE INDEX IF NOT EXISTS idx_users_company ON users (company_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_company ON tasks (company_id, id);
             CREATE INDEX IF NOT EXISTS idx_routines_company ON routines (company_id);
             CREATE INDEX IF NOT EXISTS idx_history_company ON history (company_id, id);
             CREATE INDEX IF NOT EXISTS idx_messages_company ON messages (company_id, id);
         """)
+        # Upgrade older databases: add the phone columns (safe to run many times).
+        for column, ddl in (("phone", "phone TEXT DEFAULT ''"), ("phone_verified", "phone_verified INTEGER DEFAULT 0")):
+            existing_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+            if column not in existing_cols:
+                try:
+                    conn.execute(f"ALTER TABLE users ADD COLUMN {ddl}")
+                except sqlite3.OperationalError:
+                    pass  # another worker added it a split-second earlier
+        # One verified phone number can belong to only ONE account.
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_verified ON users (phone) WHERE phone_verified = 1")
+        conn.execute("DELETE FROM sms_log WHERE ts < ?", (int(time.time()) - 7 * 86400,))
         # Housekeeping: routine check-offs older than 90 days are no longer needed.
         cutoff = (now_local() - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
         conn.execute("DELETE FROM daily_logs WHERE log_date < ?", (cutoff,))
@@ -257,7 +293,9 @@ def serialize_user(row):
         "stance": row["stance"],
         "permissions": perms,
         "company_id": row["company_id"],
-        "company_name": row["company_name"]
+        "company_name": row["company_name"],
+        # Only a yes/no is shared with other people - the number itself stays private.
+        "phone_verified": bool(row["phone_verified"]) if "phone_verified" in row.keys() else False
     }
 
 
@@ -528,6 +566,8 @@ HTML_TEMPLATE = r"""
         .social-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 10px; box-shadow: none; font-weight: 500; }
         .social-btn:hover { background: var(--card-hover); border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
 
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button:disabled:hover { transform: none; box-shadow: none; }
         #globalLoader { position: fixed; inset: 0; background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(6px); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.3s var(--ease-out-expo), visibility 0.3s var(--ease-out-expo); }
         #globalLoader.active { opacity: 1; visibility: visible; pointer-events: auto; }
         .spinner-ring { width: 44px; height: 44px; border: 3px solid rgba(94, 106, 210, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: spinLoader 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite; box-shadow: 0 0 20px rgba(94, 106, 210, 0.4); }
@@ -1024,6 +1064,35 @@ HTML_TEMPLATE = r"""
                             <option value="10" selected>Balanced (10 seconds)</option>
                             <option value="30">Slow (30 seconds)</option>
                         </select>
+                    </div>
+                </div>
+
+                <div id="phoneCard" class="card hidden" style="max-width: 600px;">
+                    <h2>Phone Verification</h2>
+                    <p style="font-size:0.9em; color:var(--subtext);">Verify your phone number to secure your account. We'll text you a 6-digit code.</p>
+
+                    <div id="phoneVerifiedBox" class="hidden" style="margin-top:20px;">
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+                            <span class="badge-done"><span class="pulsing-dot"></span>Verified</span>
+                            <b id="phoneMasked"></b>
+                        </div>
+                        <button type="button" onclick="changePhoneNumber()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); width:auto; padding:10px 18px; box-shadow:none;">Change number</button>
+                    </div>
+
+                    <div id="phoneStepNumber" class="hidden" style="margin-top:20px;">
+                        <label style="font-size:0.85em; color:var(--subtext);">Phone number</label>
+                        <input type="tel" id="phoneInput" placeholder="+91 98765 43210" autocomplete="tel" onkeydown="if(event.key==='Enter') sendPhoneCode()">
+                        <button type="button" onclick="sendPhoneCode()">Send verification code</button>
+                    </div>
+
+                    <div id="phoneStepCode" class="hidden" style="margin-top:20px;">
+                        <label style="font-size:0.85em; color:var(--subtext);">Enter the code we texted to <b id="phoneSentTo"></b></label>
+                        <input type="text" id="phoneCodeInput" inputmode="numeric" maxlength="10" placeholder="123456" autocomplete="one-time-code" onkeydown="if(event.key==='Enter') verifyPhoneCode()">
+                        <button type="button" onclick="verifyPhoneCode()">Verify</button>
+                        <div style="display:flex; gap:10px; margin-top:12px;">
+                            <button type="button" id="phoneResendBtn" onclick="sendPhoneCode(true)" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Resend code</button>
+                            <button type="button" onclick="cancelPhoneCode()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Use a different number</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1673,6 +1742,7 @@ HTML_TEMPLATE = r"""
 
             document.getElementById("settingsCompanyName").value = currentUser.company_name || "MyCorp";
             document.getElementById("settingsCompanyId").value = currentUser.company_id;
+            loadPhoneStatus();
 
             const isCeo = currentUser.role === "CEO";
             const permissions = currentUser.permissions || [];
@@ -1703,6 +1773,140 @@ HTML_TEMPLATE = r"""
             }
             restartAutoRefreshInterval();
         }
+
+        let phoneBeingVerified = "";
+        let phoneResendTimer = null;
+
+        function showPhoneStep(step) {
+            document.getElementById("phoneVerifiedBox").classList.toggle("hidden", step !== "verified");
+            document.getElementById("phoneStepNumber").classList.toggle("hidden", step !== "number");
+            document.getElementById("phoneStepCode").classList.toggle("hidden", step !== "code");
+        }
+
+        async function loadPhoneStatus() {
+            try {
+                const res = await apiFetch("/api/phone/status");
+                if (!res.ok) return;
+                const data = await res.json();
+                const card = document.getElementById("phoneCard");
+                if (!data.enabled) { card.classList.add("hidden"); return; }
+                card.classList.remove("hidden");
+                if (data.verified) {
+                    document.getElementById("phoneMasked").innerText = data.phone_masked;
+                    showPhoneStep("verified");
+                } else {
+                    showPhoneStep("number");
+                    if (!sessionStorage.getItem("tasko_phone_nudged")) {
+                        sessionStorage.setItem("tasko_phone_nudged", "1");
+                        showToast("Tip: verify your phone number in Settings.", "info");
+                    }
+                }
+            } catch (err) {
+                /* if this fails the phone card simply stays hidden */
+            }
+        }
+
+        function startPhoneResendCooldown() {
+            const btn = document.getElementById("phoneResendBtn");
+            let left = 30;
+            clearInterval(phoneResendTimer);
+            btn.disabled = true;
+            btn.innerText = "Resend code (30s)";
+            phoneResendTimer = setInterval(() => {
+                left -= 1;
+                if (left <= 0) {
+                    clearInterval(phoneResendTimer);
+                    btn.disabled = false;
+                    btn.innerText = "Resend code";
+                } else {
+                    btn.innerText = "Resend code (" + left + "s)";
+                }
+            }, 1000);
+        }
+
+        window.sendPhoneCode = async function(isResend) {
+            const phone = isResend === true ? phoneBeingVerified : document.getElementById("phoneInput").value.trim();
+            if (!phone) {
+                showToast("Enter your phone number first.", "error");
+                return;
+            }
+            showLoader("Sending code...");
+            let res = null;
+            let data = {};
+            try {
+                res = await apiFetch("/api/phone/send-code", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ phone })
+                });
+                data = await res.json().catch(() => ({}));
+            } catch (err) {
+                hideLoader();
+                showToast("Network error. Please try again.", "error");
+                return;
+            }
+            hideLoader();
+            if (!res.ok) {
+                showToast(data.error || "Could not send the code.", "error");
+                return;
+            }
+            phoneBeingVerified = data.phone;
+            document.getElementById("phoneSentTo").innerText = data.phone_masked;
+            document.getElementById("phoneCodeInput").value = "";
+            showPhoneStep("code");
+            startPhoneResendCooldown();
+            showToast("Code sent! Check your SMS.", "success");
+        };
+
+        window.verifyPhoneCode = async function() {
+            const code = document.getElementById("phoneCodeInput").value.trim();
+            if (!code) {
+                showToast("Enter the code from the SMS.", "error");
+                return;
+            }
+            showLoader("Verifying...");
+            let res = null;
+            let data = {};
+            try {
+                res = await apiFetch("/api/phone/verify-code", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ phone: phoneBeingVerified, code })
+                });
+                data = await res.json().catch(() => ({}));
+            } catch (err) {
+                hideLoader();
+                showToast("Network error. Please try again.", "error");
+                return;
+            }
+            hideLoader();
+            if (!res.ok) {
+                showToast(data.error || "Verification failed.", "error");
+                return;
+            }
+            clearInterval(phoneResendTimer);
+            phoneBeingVerified = "";
+            showToast("Phone number verified!", "success");
+            loadPhoneStatus();
+        };
+
+        window.cancelPhoneCode = function() {
+            clearInterval(phoneResendTimer);
+            phoneBeingVerified = "";
+            showPhoneStep("number");
+        };
+
+        window.changePhoneNumber = async function() {
+            if (!confirm("Remove this verified number? You will need to verify a new one.")) return;
+            const res = await apiFetch("/api/phone/remove", { method: "POST" });
+            if (res.ok) {
+                document.getElementById("phoneInput").value = "";
+                showPhoneStep("number");
+                showToast("Phone number removed.", "info");
+            } else {
+                showToast("Could not remove the number.", "error");
+            }
+        };
 
         window.updateCompanyName = async function() {
             const newName = document.getElementById("settingsCompanyName").value.trim();
@@ -1809,7 +2013,7 @@ HTML_TEMPLATE = r"""
             container.innerHTML = data.employees.map(e => `
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border-color);">
                     <div>
-                        <span>${escapeHtml(e.name)} (${escapeHtml(e.email)}) - <b style="color:var(--accent);">${escapeHtml(e.stance || e.role)}</b></span>
+                        <span>${escapeHtml(e.name)} (${escapeHtml(e.email)}) - <b style="color:var(--accent);">${escapeHtml(e.stance || e.role)}</b>${e.phone_verified ? ' <span style="color:#34d399; font-size:0.8em;">Phone verified</span>' : ''}</span>
                         <div style="font-size:0.75em; color:var(--subtext); margin-top:2px;">Permissions: ${escapeHtml((e.permissions || []).join(", ") || "None")}</div>
                     </div>
                     ${(e.role !== "CEO" && (currentUser.role === "CEO" || (currentUser.permissions && currentUser.permissions.includes("kick_employees")))) ? `<button type="button" data-email="${escapeHtml(e.email)}" onclick="window.kickEmployee(this.dataset.email)" style="width:auto; padding:6px 14px; font-size:0.85em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Kick</button>` : ""}
@@ -2822,6 +3026,192 @@ def update_company():
         conn.execute("UPDATE users SET company_name = ? WHERE company_id = ?", (new_name, str(admin["company_id"])))
         log_history(conn, admin["company_id"], f"Workspace company name updated to '{new_name}'")
         return jsonify({"success": True})
+
+
+# ---------------------------------------------------------------------------
+# Phone number verification (Twilio Verify sends and checks the SMS codes)
+# ---------------------------------------------------------------------------
+def mask_phone(phone):
+    """+919876543210 -> +91*******210  (so the full number is never shown on screen)."""
+    if not phone or len(phone) < 8:
+        return ""
+    return phone[:3] + "*" * (len(phone) - 6) + phone[-3:]
+
+
+def normalize_phone(raw):
+    """Turn whatever the user typed into a clean international number like +919876543210.
+    Returns (phone, error_message) - exactly one of them is None."""
+    s = re.sub(r"[\s\-().]", "", str(raw or ""))
+    if not s:
+        return None, "Please enter your phone number."
+    if s.startswith("00"):
+        s = "+" + s[2:]
+    if not s.startswith("+"):
+        if not s.isdigit():
+            return None, "Phone numbers can only contain digits, spaces and a leading +."
+        if DEFAULT_COUNTRY_CODE == "+91":
+            if len(s) == 11 and s.startswith("0"):
+                s = s[1:]
+            if len(s) == 12 and s.startswith("91"):
+                s = "+" + s
+        if not s.startswith("+"):
+            s = DEFAULT_COUNTRY_CODE + s
+    if not PHONE_RE.match(s):
+        return None, "That doesn't look like a valid phone number. Include the country code, e.g. +91 98765 43210."
+    if s.startswith("+91") and not re.match(r"^\+91[6-9]\d{9}$", s):
+        return None, "Indian mobile numbers must have 10 digits and start with 6, 7, 8 or 9."
+    if ALLOWED_PHONE_PREFIXES and not any(s.startswith(prefix) for prefix in ALLOWED_PHONE_PREFIXES):
+        return None, "Phone numbers from that country aren't supported yet."
+    return s, None
+
+
+def twilio_verify_post(path, data):
+    url = f"https://verify.twilio.com/v2/Services/{TWILIO_VERIFY_SERVICE_SID}/{path}"
+    return requests.post(url, data=data, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), timeout=10)
+
+
+def twilio_json(resp):
+    try:
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
+    except ValueError:
+        return {}
+
+
+def sms_count(conn, column, value, seconds):
+    """How many codes were requested for this email/phone in the last `seconds` seconds."""
+    since = int(time.time()) - seconds
+    if column not in ("email", "phone"):
+        raise ValueError("bad column")
+    return conn.execute(f"SELECT COUNT(*) FROM sms_log WHERE {column} = ? AND ts >= ?", (value, since)).fetchone()[0]
+
+
+@app.route("/api/phone/status", methods=["GET"])
+@require_auth
+def phone_status():
+    user = request.current_user
+    with get_db() as conn:
+        row = conn.execute("SELECT phone, phone_verified FROM users WHERE email = ?", (user["email"],)).fetchone()
+    verified = bool(row and row["phone_verified"])
+    return jsonify({
+        "enabled": SMS_ENABLED,
+        "verified": verified,
+        "phone_masked": mask_phone(row["phone"]) if verified else ""
+    })
+
+
+@app.route("/api/phone/send-code", methods=["POST"])
+@require_auth
+def phone_send_code():
+    user = request.current_user
+    if not SMS_ENABLED:
+        return jsonify({"error": "Phone verification isn't set up yet. Please ask the workspace owner."}), 503
+
+    phone, error = normalize_phone(get_body().get("phone"))
+    if error:
+        return jsonify({"error": error}), 400
+    if is_rate_limited("sms_ip", request.remote_addr or "unknown", 20, 3600):
+        return jsonify({"error": "Too many attempts. Please wait a while and try again."}), 429
+
+    now_ts = int(time.time())
+    with get_db() as conn:
+        me = conn.execute("SELECT phone, phone_verified FROM users WHERE email = ?", (user["email"],)).fetchone()
+        if me and me["phone_verified"] and me["phone"] == phone:
+            return jsonify({"error": "This number is already verified on your account."}), 400
+        taken = conn.execute(
+            "SELECT 1 FROM users WHERE phone = ? AND phone_verified = 1 AND email != ?", (phone, user["email"])
+        ).fetchone()
+        if taken:
+            return jsonify({"error": "This number is already linked to another account."}), 409
+
+        # Limits that protect the people being texted AND your SMS bill.
+        if sms_count(conn, "email", user["email"], 600) >= 3 or sms_count(conn, "phone", phone, 600) >= 3:
+            return jsonify({"error": "Too many codes requested. Please wait 10 minutes and try again."}), 429
+        if sms_count(conn, "email", user["email"], 86400) >= 10 or sms_count(conn, "phone", phone, 86400) >= 6:
+            return jsonify({"error": "Daily limit reached for this number. Please try again tomorrow."}), 429
+        total_today = conn.execute("SELECT COUNT(*) FROM sms_log WHERE ts >= ?", (now_ts - 86400,)).fetchone()[0]
+        if total_today >= SMS_DAILY_LIMIT:
+            return jsonify({"error": "Phone verification is temporarily unavailable. Please try again later."}), 503
+
+        conn.execute("INSERT INTO sms_log (email, phone, ts) VALUES (?, ?, ?)", (user["email"], phone, now_ts))
+
+    try:
+        resp = twilio_verify_post("Verifications", {"To": phone, "Channel": "sms"})
+    except requests.RequestException:
+        app.logger.exception("Twilio send request failed")
+        return jsonify({"error": "Couldn't reach the SMS service. Please try again in a moment."}), 502
+
+    if resp.status_code in (200, 201):
+        return jsonify({"success": True, "phone": phone, "phone_masked": mask_phone(phone)})
+
+    twilio_code = twilio_json(resp).get("code")
+    app.logger.warning("Twilio send failed: HTTP %s code %s body %s", resp.status_code, twilio_code, resp.text[:300])
+    if resp.status_code in (401, 403):
+        return jsonify({"error": "The SMS service isn't configured correctly. Please contact the workspace owner."}), 503
+    if resp.status_code == 429 or twilio_code == 60203:
+        return jsonify({"error": "Too many codes sent to this number. Please try again later."}), 429
+    if twilio_code in (60200, 60205, 60410, 21211, 21614):
+        return jsonify({"error": "We can't send a code to that number. Please check it or use a different number."}), 400
+    return jsonify({"error": "Couldn't send the code right now. Please try again in a moment."}), 502
+
+
+@app.route("/api/phone/verify-code", methods=["POST"])
+@require_auth
+def phone_verify_code():
+    user = request.current_user
+    if not SMS_ENABLED:
+        return jsonify({"error": "Phone verification isn't set up yet."}), 503
+
+    data = get_body()
+    phone, error = normalize_phone(data.get("phone"))
+    if error:
+        return jsonify({"error": error}), 400
+    code = clean_text(data.get("code"), 12)
+    if not re.fullmatch(r"\d{4,10}", code):
+        return jsonify({"error": "Please enter the numeric code from the SMS."}), 400
+    if is_rate_limited("sms_check", user["email"], 10, 600):
+        return jsonify({"error": "Too many wrong attempts. Please wait a few minutes."}), 429
+
+    try:
+        resp = twilio_verify_post("VerificationCheck", {"To": phone, "Code": code})
+    except requests.RequestException:
+        app.logger.exception("Twilio check request failed")
+        return jsonify({"error": "Couldn't reach the SMS service. Please try again in a moment."}), 502
+
+    body = twilio_json(resp)
+    if resp.status_code == 404:
+        return jsonify({"error": "That code has expired. Please request a new one."}), 400
+    if resp.status_code in (401, 403):
+        app.logger.warning("Twilio check rejected our credentials (HTTP %s)", resp.status_code)
+        return jsonify({"error": "The SMS service isn't configured correctly. Please contact the workspace owner."}), 503
+    if resp.status_code == 429:
+        return jsonify({"error": "Too many attempts. Please request a new code."}), 429
+    if resp.status_code != 200:
+        app.logger.warning("Twilio check failed: HTTP %s body %s", resp.status_code, resp.text[:300])
+        return jsonify({"error": "Couldn't verify the code right now. Please try again."}), 502
+    if body.get("status") != "approved":
+        return jsonify({"error": "That code is not correct. Please try again."}), 400
+
+    try:
+        with get_db() as conn:
+            taken = conn.execute(
+                "SELECT 1 FROM users WHERE phone = ? AND phone_verified = 1 AND email != ?", (phone, user["email"])
+            ).fetchone()
+            if taken:
+                return jsonify({"error": "This number is already linked to another account."}), 409
+            conn.execute("UPDATE users SET phone = ?, phone_verified = 1 WHERE email = ?", (phone, user["email"]))
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "This number is already linked to another account."}), 409
+    return jsonify({"success": True, "phone_masked": mask_phone(phone)})
+
+
+@app.route("/api/phone/remove", methods=["POST"])
+@require_auth
+def phone_remove():
+    user = request.current_user
+    with get_db() as conn:
+        conn.execute("UPDATE users SET phone = '', phone_verified = 0 WHERE email = ?", (user["email"],))
+    return jsonify({"success": True})
 
 
 if __name__ == "__main__":
