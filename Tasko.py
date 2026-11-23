@@ -514,13 +514,21 @@ def add_security_headers(response):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
     # CSP: allow only our own origin plus the Google & Apple auth SDKs we load.
+    # The app itself is a single server-rendered page with inline <script> and
+    # inline onclick handlers, so 'unsafe-inline' is required for them to run.
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
-        "script-src 'self' https://accounts.google.com https://appleid.cdn-apple.com; "
+        "script-src 'self' 'unsafe-inline' https://accounts.google.com https://appleid.cdn-apple.com; "
         "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
-        "connect-src 'self';",
+        "img-src 'self' data: blob:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' https://accounts.google.com https://appleid.apple.com; "
+        "frame-src https://accounts.google.com https://appleid.apple.com; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none';",
     )
     # Only send HSTS when the request really arrived over HTTPS (proxy sets X-Forwarded-Proto).
     if request.is_secure:
@@ -659,6 +667,18 @@ HTML_TEMPLATE = r"""
         
         .social-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 10px; box-shadow: none; font-weight: 500; }
         .social-btn:hover { background: var(--card-hover); border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+
+        .quick-link {
+            display: block; text-align: center; text-decoration: none;
+            background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color);
+            padding: 8px; font-size: 0.8em; margin-bottom: 8px; border-radius: 10px;
+            transition: all 0.25s var(--ease-out-expo);
+        }
+        .quick-link:hover {
+            color: var(--text-color); text-decoration: none;
+            border-color: var(--accent); background: var(--card-hover);
+            transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+        }
 
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         button:disabled:hover { transform: none; box-shadow: none; }
@@ -1280,6 +1300,7 @@ HTML_TEMPLATE = r"""
                 <div style="font-size:0.75em; color:var(--subtext); margin-bottom:4px;" id="sidebarUserRole">Role</div>
                 <div style="font-size:0.75em; color:var(--accent); margin-bottom:14px;" id="sidebarUserStance">Stance</div>
                 <button type="button" onclick="toggleFeedbackModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">Send Feedback</button>
+                <a class="quick-link" href="/documentation" target="_blank" rel="noopener">Documentation</a>
                 <button type="button" onclick="toggleCommandPalette()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--subtext); padding:8px; font-size:0.8em; margin-bottom:8px; box-shadow:none;">Command Palette (⌘K)</button>
                 <button type="button" onclick="window.logout()" style="background:rgba(220,38,38,0.12); color:#f87171; border:1px solid rgba(220,38,38,0.25); padding:8px; font-size:0.85em; box-shadow:none;">Logout</button>
             </div>
@@ -1483,6 +1504,12 @@ HTML_TEMPLATE = r"""
                             <option value="30">Slow (30 seconds)</option>
                         </select>
                     </div>
+
+                    <div style="margin-top:24px; border-top:1px solid var(--border-color); padding-top:24px;">
+                        <label style="font-size:0.85em; color:var(--subtext); display:block; margin-bottom:8px;">Product Documentation</label>
+                        <p style="font-size:0.85em; color:var(--subtext); margin:0 0 12px 0;">Who Tasko is for, the benefits for managers and employees, and how AI proof checking works.</p>
+                        <a class="quick-link" href="/documentation" target="_blank" rel="noopener" style="display:inline-block; width:auto; margin:0; padding:10px 18px;">Open documentation (.docx)</a>
+                    </div>
                 </div>
 
                 <div id="phoneCard" class="card hidden" style="max-width: 600px;">
@@ -1581,6 +1608,7 @@ HTML_TEMPLATE = r"""
 
         const commandList = [
             { title: "Send Workspace Feedback", action: () => { toggleFeedbackModal(); closeCommandPalette(); } },
+            { title: "Open Product Documentation", action: () => { window.open("/documentation", "_blank", "noopener"); closeCommandPalette(); } },
             { title: "Go to Assigned Tasks", action: () => { switchSection("tasksSection", document.querySelector(".sidebar-menu button")); closeCommandPalette(); } },
             { title: "Go to Daily Routines", action: () => { switchSection("routinesSection", document.querySelectorAll(".sidebar-menu button")[1]); closeCommandPalette(); } },
             { title: "Go to Team Chat", action: () => { switchSection("chatSection", document.getElementById("navChat")); closeCommandPalette(); } },

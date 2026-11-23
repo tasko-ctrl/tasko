@@ -14,6 +14,18 @@ Google/Apple sign-in and optional Twilio phone verification.
 - Workspace chat with incremental polling
 - Activity log, employee role/permission editing, kick (with re-apply support)
 - Optional SMS phone verification through Twilio Verify
+- Downloadable product documentation, linked from the app and landing page
+
+## Product documentation
+
+The Word document lives at `docs/Tasko-Documentation.docx` and is served as a
+download at `/documentation`. It is linked from:
+
+- the workspace sidebar and Settings page,
+- the command palette (`Ctrl/Cmd+K`),
+- the landing page navigation and footer.
+
+Edit the `.docx` in place and redeploy; no code changes are needed.
 
 ## Run locally
 

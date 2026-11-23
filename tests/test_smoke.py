@@ -308,3 +308,21 @@ def test_proof_is_verified_and_stored(client, monkeypatch):
     assert client.post("/api/tasks/delete", headers=auth(ceo["token"]),
                        json={"task_id": task_id}).status_code == 200
     assert not os.path.exists(os.path.join(Tasko.PROOFS_DIR, task["proof_path"]))
+
+
+def test_csp_allows_inline_app_scripts(client):
+    response = client.get("/app")
+    csp = response.headers.get("Content-Security-Policy", "")
+    # The whole UI is inline JS + inline onclick handlers, so blocking inline
+    # scripts silently breaks every button (including the login form).
+    assert "script-src" in csp
+    assert "'unsafe-inline'" in csp
+
+
+def test_documentation_download(client):
+    response = client.get("/documentation")
+    assert response.status_code == 200
+    assert response.mimetype == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert "attachment" in response.headers.get("Content-Disposition", "")
