@@ -326,3 +326,87 @@ def test_documentation_download(client):
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
     assert "attachment" in response.headers.get("Content-Disposition", "")
+
+
+def _employee_task(client, suffix):
+    """Create a workspace with one approved employee and one task assigned to them."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    ceo = signup(client, f"Boss{suffix}", f"boss{suffix}@aiemp.test", company_name=f"AI Emp {suffix}")
+    company_id = str(ceo["user"]["company_id"])
+    employee = signup(client, f"Worker{suffix}", f"worker{suffix}@aiemp.test", role="Employee",
+                      company_name="", company_id=company_id)
+    client.post("/api/admin/approve-user", headers=auth(ceo["token"]), json={
+        "email": f"worker{suffix}@aiemp.test", "stance": "Ops", "permissions": [],
+    })
+    client.post("/api/tasks", headers=auth(ceo["token"]), json={
+        "title": "Clean the desk",
+        "description": "Photo of the clean desk",
+        "assigned_to": f"Worker{suffix}",
+        "priority": "High",
+    })
+    tasks = client.get("/api/data", headers=auth(employee["token"])).get_json()["tasks"]
+    assert len(tasks) == 1
+    buffer = io.BytesIO()
+    Image.new("RGB", (40, 40), "white").save(buffer, format="JPEG")
+    image = base64.b64encode(buffer.getvalue()).decode()
+    return employee, tasks[0]["id"], image
+
+
+def _fake_gemini(fail_models=(), error="404 NOT_FOUND: model not found", calls=None):
+    class FakeParsed:
+        def model_dump(self):
+            return {"passed": True, "reason": "The photo clearly shows the clean desk."}
+
+    class FakeResponse:
+        parsed = FakeParsed()
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            model = kwargs.get("model")
+            if calls is not None:
+                calls.append(model)
+            if model in fail_models:
+                raise RuntimeError(error)
+            return FakeResponse()
+
+    class FakeClient:
+        models = FakeModels()
+
+    return FakeClient()
+
+
+def test_gemini_models_keep_live_fallbacks():
+    # The default list used to be gemini-2.5-flash,gemini-2.0-flash. Those are retired,
+    # which silently broke AI verification for every user.
+    assert len(Tasko.GEMINI_MODELS) == len(set(Tasko.GEMINI_MODELS))
+    assert "gemini-3.5-flash" in Tasko.GEMINI_MODELS
+
+
+def test_employee_proof_falls_back_to_a_current_model(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(Tasko, "GEMINI_MODELS", ["gemini-2.0-flash", "gemini-3.5-flash"])
+    monkeypatch.setattr(Tasko, "client", _fake_gemini(fail_models={"gemini-2.0-flash"}, calls=calls))
+
+    employee, task_id, image = _employee_task(client, "A")
+    response = client.post("/api/tasks/verify-proof", headers=auth(employee["token"]), json={
+        "task_id": task_id, "image": image, "mime_type": "image/jpeg",
+    })
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()["status"] == "Completed"
+    assert calls == ["gemini-2.0-flash", "gemini-3.5-flash"]
+
+
+def test_retired_models_return_a_clear_error(client, monkeypatch):
+    monkeypatch.setattr(Tasko, "GEMINI_MODELS", ["gemini-2.5-flash", "gemini-2.0-flash"])
+    monkeypatch.setattr(Tasko, "client", _fake_gemini(fail_models={"gemini-2.5-flash", "gemini-2.0-flash"}))
+
+    employee, task_id, image = _employee_task(client, "B")
+    response = client.post("/api/tasks/verify-proof", headers=auth(employee["token"]), json={
+        "task_id": task_id, "image": image, "mime_type": "image/jpeg",
+    })
+    assert response.status_code == 503
+    assert "GEMINI_MODEL" in response.get_json()["error"]

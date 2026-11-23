@@ -46,6 +46,10 @@ Open http://localhost:5000 for the landing page and http://localhost:5000/app
 for the workspace. Only `SECRET_KEY`, `DATA_DIR` and (for AI proof checks)
 `GEMINI_API_KEY` are needed to start.
 
+AI proof checks try `GEMINI_MODEL` first (comma-separated), then fall back to
+current built-in model names, so a retired model never breaks verification.
+If a proof check fails, the toast says whether the key or the model needs fixing.
+
 Environment variables are documented in `.env.example`. Do not commit `.env`.
 
 ## Deploy on Railway

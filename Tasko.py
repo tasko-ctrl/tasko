@@ -102,7 +102,11 @@ GOOGLE_CLIENT_ID = (os.environ.get("GOOGLE_CLIENT_ID") or "").strip()
 APPLE_CLIENT_ID = (os.environ.get("APPLE_CLIENT_ID") or "").strip() or "com.tasko.workspace.app"
 
 # Gemini models are retired from time to time, so these are configurable. The app tries them in order.
-GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODEL", "gemini-2.5-flash,gemini-2.0-flash").split(",") if m.strip()]
+# A configured name always comes first, then these known-current fallbacks, so an outdated
+# GEMINI_MODEL (e.g. the retired gemini-2.0-flash) can never take AI verification down.
+GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODEL", "").split(",") if m.strip()]
+GEMINI_FALLBACK_MODELS = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
+GEMINI_MODELS = list(dict.fromkeys(GEMINI_MODELS + GEMINI_FALLBACK_MODELS))
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
@@ -3923,6 +3927,8 @@ def verify_proof():
     )
 
     evaluation = None
+    model_retired = True
+    last_failure = ""
     for model_name in GEMINI_MODELS:
         try:
             response = client.models.generate_content(
@@ -3939,11 +3945,35 @@ def verify_proof():
             else:
                 evaluation = json.loads(response.text)
             break
-        except Exception:
+        except Exception as exc:
             app.logger.exception("Gemini verification failed with model %s", model_name)
             evaluation = None
+            # Remember whether the failure was "this model does not exist any more"
+            # rather than a quota/network problem, so the error message is accurate.
+            message = str(exc).lower()
+            last_failure = message
+            if not any(
+                marker in message
+                for marker in ("not found", "not_found", "no longer", "unsupported", "does not exist")
+            ):
+                model_retired = False
 
     if not isinstance(evaluation, dict):
+        if model_retired:
+            app.logger.error("Every configured Gemini model is unavailable: %s", GEMINI_MODELS)
+            return jsonify({
+                "error": "AI verification is unavailable because the configured Gemini model is no "
+                         "longer offered. Ask your workspace owner to set GEMINI_MODEL to a current "
+                         "model such as gemini-3.5-flash."
+            }), 503
+        if any(
+            marker in last_failure
+            for marker in ("api key", "api_key", "unauthenticated", "permission denied", "forbidden")
+        ):
+            return jsonify({
+                "error": "AI verification is misconfigured: Gemini rejected the API key. Ask your "
+                         "workspace owner to check GEMINI_API_KEY."
+            }), 503
         return jsonify({"error": "AI verification is temporarily unavailable. Please try again in a moment."}), 502
 
     passed = bool(evaluation.get("passed", False))
