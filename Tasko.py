@@ -632,15 +632,15 @@ HTML_TEMPLATE = r"""
         }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.4s var(--ease-out-expo), color 0.4s var(--ease-out-expo); }
         
-        .sidebar { width: 265px; min-width: 265px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 24px; box-sizing: border-box; height: 100vh; transition: all 0.3s var(--ease-out-expo); }
+        .sidebar { width: 265px; min-width: 265px; background: var(--bg-color); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 24px; box-sizing: border-box; height: 100vh; transition: all 0.3s var(--ease-out-expo); }
         .sidebar-brand { font-size: 1.15em; font-weight: 600; display: flex; align-items: center; gap: 10px; margin-bottom: 32px; color: var(--text-color); letter-spacing: -0.01em; animation: fadeInDown 0.5s var(--ease-out-expo); }
-        .sidebar-menu { display: flex; flex-direction: column; gap: 6px; flex: 1; overflow-y: auto; }
+        .sidebar-menu { display: flex; flex-direction: column; gap: 4px; flex: 1; overflow-y: auto; }
         
-        .nav-item { padding: 11px 14px; border-radius: 10px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.9em; transition: all 0.25s var(--ease-out-expo); border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; box-sizing: border-box; position: relative; overflow: hidden; }
-        .nav-item::after { content: ''; position: absolute; left: 0; bottom: 0; width: 3px; height: 0; background: var(--accent); transition: height 0.2s var(--ease-out-expo); border-radius: 0 4px 4px 0; }
-        .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-color); transform: translateX(4px); }
-        .nav-item.active { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); box-shadow: 0 8px 24px rgba(0,0,0,0.3); transform: translateX(4px); }
-        .nav-item.active::after { height: 60%; }
+        .nav-item { padding: 10px 14px; border-radius: 8px; cursor: pointer; color: var(--subtext); font-weight: 500; font-size: 0.875em; transition: all 0.2s ease; border: none; background: transparent; text-align: left; width: 100%; display: flex; align-items: center; gap: 10px; box-sizing: border-box; position: relative; overflow: hidden; }
+        .nav-item::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); transform: scaleY(0); transition: transform 0.2s ease; border-radius: 0 2px 2px 0; transform-origin: bottom; }
+        .nav-item:hover { background: rgba(255,255,255,0.03); color: var(--text-color); }
+        .nav-item.active { background: rgba(94, 106, 210, 0.1); color: var(--text-color); border: none; box-shadow: none; transform: none; }
+        .nav-item.active::after { transform: scaleY(1); transform-origin: top; }
 
         .main-content { flex: 1; overflow-y: auto; padding: 48px; box-sizing: border-box; position: relative; }
         
@@ -845,25 +845,13 @@ HTML_TEMPLATE = r"""
         /* Sidebar */
         .sidebar {
             animation: slideInLeft 0.6s var(--ease-out-expo) backwards;
-            background-image: linear-gradient(180deg, rgba(94, 106, 210, 0.06), transparent 38%);
+            background-image: none;
         }
-        .sidebar-menu .nav-item { animation: fadeInDown 0.5s var(--ease-out-expo) backwards; }
-        .sidebar-menu .nav-item:nth-child(1) { animation-delay: 0.05s; }
-        .sidebar-menu .nav-item:nth-child(2) { animation-delay: 0.09s; }
-        .sidebar-menu .nav-item:nth-child(3) { animation-delay: 0.13s; }
-        .sidebar-menu .nav-item:nth-child(4) { animation-delay: 0.17s; }
-        .sidebar-menu .nav-item:nth-child(5) { animation-delay: 0.21s; }
-        .sidebar-menu .nav-item:nth-child(6) { animation-delay: 0.25s; }
-        .sidebar-menu .nav-item:nth-child(7) { animation-delay: 0.29s; }
-        .sidebar-menu .nav-item:nth-child(8) { animation-delay: 0.33s; }
-        .nav-item::before {
-            content: ""; position: absolute; inset: 0; border-radius: inherit;
-            background: radial-gradient(140px circle at var(--mx, 50%) var(--my, 50%), rgba(94, 106, 210, 0.22), transparent 65%);
-            opacity: 0; transition: opacity 0.3s var(--ease-out-expo); pointer-events: none;
-        }
-        .nav-item:hover::before { opacity: 1; }
-        .nav-item.active { animation: activeGlow 2.6s ease-in-out infinite; }
-        .sidebar-brand { animation: fadeInDown 0.5s var(--ease-out-expo), floatY 6s ease-in-out 0.6s infinite; }
+        .sidebar-menu .nav-item { animation: none; }
+        .nav-item::before { display: none; }
+        .nav-item:hover::before { opacity: 0; }
+        .nav-item.active { animation: none; }
+        .sidebar-brand { animation: fadeInDown 0.5s var(--ease-out-expo); }
         #brandCompanyName {
             background: linear-gradient(90deg, var(--text-color) 10%, var(--accent-hover) 55%, var(--text-color) 100%);
             background-size: 220% auto;
@@ -1577,6 +1565,11 @@ HTML_TEMPLATE = r"""
         let cachedEmployees = [];
         let lastDataSignature = "";
         let currentTaskView = "list";
+        let uiLocked = false;
+
+        function lockUI() { uiLocked = true; }
+        function unlockUI() { uiLocked = false; }
+        function uiIsLocked() { return uiLocked; }
         let googleInitialized = false;
 
         function hasPerm(permission) {
@@ -2424,69 +2417,71 @@ HTML_TEMPLATE = r"""
         }
 
         window.sendPhoneCode = async function(isResend) {
-            const phone = isResend === true ? phoneBeingVerified : document.getElementById("phoneInput").value.trim();
-            if (!phone) {
-                showToast("Enter your phone number first.", "error");
-                return;
-            }
-            showLoader("Sending code...");
-            let res = null;
-            let data = {};
+            lockUI();
             try {
+                const phone = isResend === true ? phoneBeingVerified : document.getElementById("phoneInput").value.trim();
+                if (!phone) {
+                    showToast("Enter your phone number first.", "error");
+                    return;
+                }
+                showLoader("Sending code...");
+                let res = null;
+                let data = {};
                 res = await apiFetch("/api/phone/send-code", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ phone })
                 });
                 data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    showToast(data.error || "Could not send the code.", "error");
+                    return;
+                }
+                phoneBeingVerified = data.phone;
+                document.getElementById("phoneSentTo").innerText = data.phone_masked;
+                document.getElementById("phoneCodeInput").value = "";
+                showPhoneStep("code");
+                startPhoneResendCooldown();
+                showToast("Code sent! Check your SMS.", "success");
             } catch (err) {
-                hideLoader();
                 showToast("Network error. Please try again.", "error");
-                return;
+            } finally {
+                hideLoader();
+                unlockUI();
             }
-            hideLoader();
-            if (!res.ok) {
-                showToast(data.error || "Could not send the code.", "error");
-                return;
-            }
-            phoneBeingVerified = data.phone;
-            document.getElementById("phoneSentTo").innerText = data.phone_masked;
-            document.getElementById("phoneCodeInput").value = "";
-            showPhoneStep("code");
-            startPhoneResendCooldown();
-            showToast("Code sent! Check your SMS.", "success");
         };
 
         window.verifyPhoneCode = async function() {
-            const code = document.getElementById("phoneCodeInput").value.trim();
-            if (!code) {
-                showToast("Enter the code from the SMS.", "error");
-                return;
-            }
-            showLoader("Verifying...");
-            let res = null;
-            let data = {};
+            lockUI();
             try {
+                const code = document.getElementById("phoneCodeInput").value.trim();
+                if (!code) {
+                    showToast("Enter the code from the SMS.", "error");
+                    return;
+                }
+                showLoader("Verifying...");
+                let res = null;
+                let data = {};
                 res = await apiFetch("/api/phone/verify-code", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ phone: phoneBeingVerified, code })
                 });
                 data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    showToast(data.error || "Verification failed.", "error");
+                    return;
+                }
+                clearInterval(phoneResendTimer);
+                phoneBeingVerified = "";
+                showToast("Phone number verified!", "success");
+                loadPhoneStatus();
             } catch (err) {
-                hideLoader();
                 showToast("Network error. Please try again.", "error");
-                return;
+            } finally {
+                hideLoader();
+                unlockUI();
             }
-            hideLoader();
-            if (!res.ok) {
-                showToast(data.error || "Verification failed.", "error");
-                return;
-            }
-            clearInterval(phoneResendTimer);
-            phoneBeingVerified = "";
-            showToast("Phone number verified!", "success");
-            loadPhoneStatus();
         };
 
         window.cancelPhoneCode = function() {
@@ -2497,24 +2492,32 @@ HTML_TEMPLATE = r"""
 
         window.changePhoneNumber = async function() {
             if (!confirm("Remove this verified number? You will need to verify a new one.")) return;
-            const res = await apiFetch("/api/phone/remove", { method: "POST" });
-            if (res.ok) {
-                document.getElementById("phoneInput").value = "";
-                showPhoneStep("number");
-                showToast("Phone number removed.", "info");
-            } else {
+            lockUI();
+            try {
+                const res = await apiFetch("/api/phone/remove", { method: "POST" });
+                if (res.ok) {
+                    document.getElementById("phoneInput").value = "";
+                    showPhoneStep("number");
+                    showToast("Phone number removed.", "info");
+                } else {
+                    showToast("Could not remove the number.", "error");
+                }
+            } catch (err) {
                 showToast("Could not remove the number.", "error");
+            } finally {
+                unlockUI();
             }
         };
 
         window.updateCompanyName = async function() {
-            const newName = document.getElementById("settingsCompanyName").value.trim();
-            if (!newName) {
-                showToast("Company name cannot be empty.", "error");
-                return;
-            }
-            showLoader("Updating company name...");
+            lockUI();
             try {
+                const newName = document.getElementById("settingsCompanyName").value.trim();
+                if (!newName) {
+                    showToast("Company name cannot be empty.", "error");
+                    return;
+                }
+                showLoader("Updating company name...");
                 const res = await apiFetch("/api/admin/update-company", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -2533,6 +2536,7 @@ HTML_TEMPLATE = r"""
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
@@ -2574,34 +2578,39 @@ HTML_TEMPLATE = r"""
         }
 
         window.approveUser = async function(email) {
-            const emailKey = email.replace(/[^a-zA-Z0-9]/g, "_");
-            const stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
-            let stance = stanceDropdown === "Custom" ? document.getElementById(`customStance_${emailKey}`).value.trim() : stanceDropdown;
-            if (!stance) stance = "Team Member";
+            lockUI();
+            try {
+                const emailKey = email.replace(/[^a-zA-Z0-9]/g, "_");
+                const stanceDropdown = document.getElementById(`stanceSelect_${emailKey}`).value;
+                let stance = stanceDropdown === "Custom" ? document.getElementById(`customStance_${emailKey}`).value.trim() : stanceDropdown;
+                if (!stance) stance = "Team Member";
 
-            const permissions = [];
-            if (document.getElementById(`perm_approvals_${emailKey}`).checked) permissions.push("handle_approvals");
-            if (document.getElementById(`perm_kick_${emailKey}`).checked) permissions.push("kick_employees");
-            if (document.getElementById(`perm_routines_${emailKey}`).checked) permissions.push("config_routines");
-            if (document.getElementById(`perm_stances_${emailKey}`).checked) permissions.push("modify_stances");
-            if (document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push("assign_tasks");
-            if (document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push("view_logs");
+                const permissions = [];
+                if (document.getElementById(`perm_approvals_${emailKey}`).checked) permissions.push("handle_approvals");
+                if (document.getElementById(`perm_kick_${emailKey}`).checked) permissions.push("kick_employees");
+                if (document.getElementById(`perm_routines_${emailKey}`).checked) permissions.push("config_routines");
+                if (document.getElementById(`perm_stances_${emailKey}`).checked) permissions.push("modify_stances");
+                if (document.getElementById(`perm_assign_${emailKey}`).checked) permissions.push("assign_tasks");
+                if (document.getElementById(`perm_logs_${emailKey}`).checked) permissions.push("view_logs");
 
-            showLoader("Approving employee...");
-            const res = await apiFetch("/api/admin/approve-user", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, stance, permissions })
-            });
-            hideLoader();
-            if (res.ok) {
-                showToast("Employee approved successfully!");
-                loadPendingUsers();
-                loadEmployeesManagement();
-                loadEmployeesDropdown();
-            } else {
-                const err = await res.json();
-                showToast(err.error || "Approval failed", "error");
+                showLoader("Approving employee...");
+                const res = await apiFetch("/api/admin/approve-user", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, stance, permissions })
+                });
+                hideLoader();
+                if (res.ok) {
+                    showToast("Employee approved successfully!");
+                    loadPendingUsers();
+                    loadEmployeesManagement();
+                    loadEmployeesDropdown();
+                } else {
+                    const err = await res.json();
+                    showToast(err.error || "Approval failed", "error");
+                }
+            } finally {
+                unlockUI();
             }
         };
 
@@ -2662,17 +2671,18 @@ HTML_TEMPLATE = r"""
         };
 
         window.saveEmployee = async function(key, email) {
-            const stance = document.getElementById(`empStance_${key}`).value.trim();
-            const permissions = [];
-            if (document.getElementById(`empPerm_approvals_${key}`).checked) permissions.push("handle_approvals");
-            if (document.getElementById(`empPerm_kick_${key}`).checked) permissions.push("kick_employees");
-            if (document.getElementById(`empPerm_routines_${key}`).checked) permissions.push("config_routines");
-            if (document.getElementById(`empPerm_stances_${key}`).checked) permissions.push("modify_stances");
-            if (document.getElementById(`empPerm_assign_${key}`).checked) permissions.push("assign_tasks");
-            if (document.getElementById(`empPerm_logs_${key}`).checked) permissions.push("view_logs");
-
-            showLoader("Saving employee changes...");
+            lockUI();
             try {
+                const stance = document.getElementById(`empStance_${key}`).value.trim();
+                const permissions = [];
+                if (document.getElementById(`empPerm_approvals_${key}`).checked) permissions.push("handle_approvals");
+                if (document.getElementById(`empPerm_kick_${key}`).checked) permissions.push("kick_employees");
+                if (document.getElementById(`empPerm_routines_${key}`).checked) permissions.push("config_routines");
+                if (document.getElementById(`empPerm_stances_${key}`).checked) permissions.push("modify_stances");
+                if (document.getElementById(`empPerm_assign_${key}`).checked) permissions.push("assign_tasks");
+                if (document.getElementById(`empPerm_logs_${key}`).checked) permissions.push("view_logs");
+
+                showLoader("Saving employee changes...");
                 const res = await apiFetch("/api/admin/update-employee", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -2691,11 +2701,13 @@ HTML_TEMPLATE = r"""
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
         window.kickEmployee = async function(email) {
             if (!confirm("Are you sure you want to kick this employee?")) return;
+            lockUI();
             showLoader("Removing employee...");
             try {
                 const res = await apiFetch("/api/admin/kick-employee", {
@@ -2716,6 +2728,7 @@ HTML_TEMPLATE = r"""
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
@@ -2738,19 +2751,20 @@ HTML_TEMPLATE = r"""
         }
 
         window.createTask = async function() {
-            const data = {
-                title: document.getElementById("taskTitle").value.trim(),
-                description: document.getElementById("taskDescription").value.trim(),
-                assigned_to: document.getElementById("taskAssigneeSelect").value,
-                deadline: document.getElementById("taskDeadline").value,
-                priority: document.getElementById("taskPriority").value
-            };
-            if (!data.title || !data.assigned_to) {
-                showToast("Please fill out task title and select an assignee.", "error");
-                return;
-            }
-            showLoader("Assigning task...");
+            lockUI();
             try {
+                const data = {
+                    title: document.getElementById("taskTitle").value.trim(),
+                    description: document.getElementById("taskDescription").value.trim(),
+                    assigned_to: document.getElementById("taskAssigneeSelect").value,
+                    deadline: document.getElementById("taskDeadline").value,
+                    priority: document.getElementById("taskPriority").value
+                };
+                if (!data.title || !data.assigned_to) {
+                    showToast("Please fill out task title and select an assignee.", "error");
+                    return;
+                }
+                showLoader("Assigning task...");
                 const res = await apiFetch("/api/tasks", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -2770,20 +2784,22 @@ HTML_TEMPLATE = r"""
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
         window.createDailyRoutine = async function() {
-            const data = {
-                title: document.getElementById("routineTitle").value.trim(),
-                assigned_to: document.getElementById("routineAssigneeSelect").value
-            };
-            if (!data.title || !data.assigned_to) {
-                showToast("Please fill out routine title and select an assignee.", "error");
-                return;
-            }
-            showLoader("Configuring routine...");
+            lockUI();
             try {
+                const data = {
+                    title: document.getElementById("routineTitle").value.trim(),
+                    assigned_to: document.getElementById("routineAssigneeSelect").value
+                };
+                if (!data.title || !data.assigned_to) {
+                    showToast("Please fill out routine title and select an assignee.", "error");
+                    return;
+                }
+                showLoader("Configuring routine...");
                 const res = await apiFetch("/api/routines", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -2801,12 +2817,15 @@ HTML_TEMPLATE = r"""
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
         async function loadDashboardData() {
+            if (uiLocked) return;
             try {
                 const res = await apiFetch("/api/data");
+                if (uiLocked) return;
                 if (res.status === 403) {
                     // Kicked or no longer approved: let check-status route decide.
                     checkLoginState();
@@ -2822,13 +2841,13 @@ HTML_TEMPLATE = r"""
                         localStorage.setItem("tasko_user", JSON.stringify(currentUser));
                         updatePermissionUI();
                         if (hasPerm("assign_tasks") || hasPerm("config_routines") || hasPerm("handle_approvals")) {
-                            loadEmployeesDropdown();
+                            if (!uiLocked) loadEmployeesDropdown();
                         }
                         if (hasPerm("handle_approvals")) {
-                            loadPendingUsers();
+                            if (!uiLocked) loadPendingUsers();
                         }
                         if (hasPerm("handle_approvals") || hasPerm("kick_employees") || hasPerm("modify_stances")) {
-                            loadEmployeesManagement();
+                            if (!uiLocked) loadEmployeesManagement();
                         }
                     }
                 }
@@ -2840,51 +2859,53 @@ HTML_TEMPLATE = r"""
                 if (signature === lastDataSignature) return;
                 lastDataSignature = signature;
 
-                cachedTasks = data.tasks.filter(t => canSeeAllTasks() || t.assigned_to === currentUser.name);
-                renderTasks(cachedTasks);
+                if (!uiLocked) {
+                    cachedTasks = data.tasks.filter(t => canSeeAllTasks() || t.assigned_to === currentUser.name);
+                    renderTasks(cachedTasks);
 
-                const routinesContainer = document.getElementById("dailyRoutinesList");
-                const configRoutinesContainer = document.getElementById("configRoutinesList");
+                    const routinesContainer = document.getElementById("dailyRoutinesList");
+                    const configRoutinesContainer = document.getElementById("configRoutinesList");
 
-                if (configRoutinesContainer) {
-                    configRoutinesContainer.innerHTML = data.routines.length === 0
-                        ? "<span style='color:var(--subtext);'>No daily routines configured.</span>"
-                        : data.routines.map(r => `<div style="padding:10px 0; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;"><div><b>${escapeHtml(r.title)}</b> - Assigned to: ${escapeHtml(r.assigned_to)}</div>${hasPerm("config_routines") ? `<button type="button" onclick="window.deleteRoutine(${r.id})" style="width:auto; padding:5px 12px; font-size:0.8em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;">Delete</button>` : ""}</div>`).join("");
-                }
+                    if (configRoutinesContainer) {
+                        configRoutinesContainer.innerHTML = data.routines.length === 0
+                            ? "<span style='color:var(--subtext);'>No daily routines configured.</span>"
+                            : data.routines.map(r => `<div style=\"padding:10px 0; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;\"><div><b>${escapeHtml(r.title)}</b> - Assigned to: ${escapeHtml(r.assigned_to)}</div>${hasPerm("config_routines") ? `<button type=\"button\" onclick=\"window.deleteRoutine(${r.id})\" style=\"width:auto; padding:5px 12px; font-size:0.8em; background:rgba(220,38,38,0.15); color:#f87171; border:1px solid rgba(220,38,38,0.3); box-shadow:none;\">Delete</button>` : ""}</div>`).join("");
+                    }
 
-                const viewableRoutines = data.routines.filter(r => canSeeAllRoutines() || r.assigned_to === currentUser.name);
-                if (viewableRoutines.length === 0) {
-                    routinesContainer.innerHTML = "<span style='color:var(--subtext);'>No daily routines for today.</span>";
-                } else {
-                    routinesContainer.innerHTML = viewableRoutines.map(r => {
-                        const isDoneToday = r.today_status === "Completed";
-                        const statusBadge = isDoneToday
-                            ? '<span class="badge-done"><span class="pulsing-dot"></span>Done Today</span>'
-                            : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Today</span>';
-                        const mine = r.assigned_to === currentUser.name;
-                        const actionHtml = ((mine || hasPerm("assign_tasks")) && !isDoneToday)
-                            ? `<div style="margin-top:12px;"><button type="button" onclick="window.markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button></div>`
-                            : "";
+                    const viewableRoutines = data.routines.filter(r => canSeeAllRoutines() || r.assigned_to === currentUser.name);
+                    if (viewableRoutines.length === 0) {
+                        routinesContainer.innerHTML = "<span style='color:var(--subtext);'>No daily routines for today.</span>";
+                    } else {
+                        routinesContainer.innerHTML = viewableRoutines.map(r => {
+                            const isDoneToday = r.today_status === "Completed";
+                            const statusBadge = isDoneToday
+                                ? '<span class="badge-done"><span class="pulsing-dot"></span>Done Today</span>'
+                                : '<span class="badge-pending"><span class="pulsing-dot"></span>Pending Today</span>';
+                            const mine = r.assigned_to === currentUser.name;
+                            const actionHtml = ((mine || hasPerm("assign_tasks")) && !isDoneToday)
+                                ? `<div style="margin-top:12px;"><button type="button" onclick="window.markRoutineDone(${r.id})" style="background:#059669; width:auto; padding:8px 16px; font-size:0.85em;">Mark Completed for Today</button></div>`
+                                : "";
 
-                        return `
-                            <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
-                                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-                                    <div>
-                                        <strong style="font-size:1.05em;">${escapeHtml(r.title)}</strong>
-                                        <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${escapeHtml(r.assigned_to)} - Resets daily</div>
+                            return `
+                                <div style="background:var(--input-bg); padding:20px; margin:14px 0; border-radius:12px; border:1px solid var(--border-color);">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                                        <div>
+                                            <strong style="font-size:1.05em;">${escapeHtml(r.title)}</strong>
+                                            <div style="font-size:0.85em; color:var(--subtext); margin-top:4px;">Assigned to: ${escapeHtml(r.assigned_to)} - Resets daily</div>
+                                        </div>
+                                        <div>${statusBadge}</div>
                                     </div>
-                                    <div>${statusBadge}</div>
+                                    ${actionHtml}
                                 </div>
-                                ${actionHtml}
-                            </div>
-                        `;
-                    }).join("");
-                }
+                            `;
+                        }).join("");
+                    }
 
-                const historyBody = document.getElementById("historyTableBody");
-                historyBody.innerHTML = data.history.length === 0
-                    ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>`
-                    : data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${escapeHtml(h.time)}</td><td>${escapeHtml(h.action)}</td></tr>`).join("");
+                    const historyBody = document.getElementById("historyTableBody");
+                    historyBody.innerHTML = data.history.length === 0
+                        ? `<tr><td colspan="2" style="color:var(--subtext);">No history recorded yet.</td></tr>`
+                        : data.history.map(h => `<tr><td style="color:var(--subtext); width:150px;">${escapeHtml(h.time)}</td><td>${escapeHtml(h.action)}</td></tr>`).join("");
+                }
             } catch (err) {
                 // A temporary network problem must never break the UI.
                 console.log("Dashboard refresh failed:", err);
@@ -2893,6 +2914,7 @@ HTML_TEMPLATE = r"""
 
         window.deleteRoutine = async function(routineId) {
             if (!confirm("Delete this daily routine? Its check-off history will be removed.")) return;
+            lockUI();
             showLoader("Deleting routine...");
             try {
                 const res = await apiFetch("/api/routines/delete", {
@@ -2912,6 +2934,7 @@ HTML_TEMPLATE = r"""
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
@@ -3071,6 +3094,7 @@ HTML_TEMPLATE = r"""
 
         window.deleteTask = async function(taskId) {
             if (!confirm("Delete this task and its stored proof?")) return;
+            lockUI();
             showLoader("Deleting task...");
             try {
                 const res = await apiFetch("/api/tasks/delete", {
@@ -3090,6 +3114,7 @@ HTML_TEMPLATE = r"""
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
@@ -3178,26 +3203,27 @@ HTML_TEMPLATE = r"""
         }
 
         window.submitProof = async function(taskId) {
-            let file = selectedProofFiles[taskId];
-            if (!file) {
-                const fileInput = document.getElementById(`proofFile_${taskId}`);
-                if (fileInput && fileInput.files && fileInput.files[0]) file = fileInput.files[0];
-            }
-            if (!file) {
-                showToast("Please select an image file first.", "error");
-                return;
-            }
-            if (!file.type || !file.type.startsWith("image/")) {
-                showToast("Please choose a JPG, PNG or WEBP image.", "error");
-                return;
-            }
-            if (file.size > 20 * 1024 * 1024) {
-                showToast("That photo is too large. Please choose one under 20 MB.", "error");
-                return;
-            }
-
-            showLoader("Preparing your proof...");
+            lockUI();
             try {
+                let file = selectedProofFiles[taskId];
+                if (!file) {
+                    const fileInput = document.getElementById(`proofFile_${taskId}`);
+                    if (fileInput && fileInput.files && fileInput.files[0]) file = fileInput.files[0];
+                }
+                if (!file) {
+                    showToast("Please select an image file first.", "error");
+                    return;
+                }
+                if (!file.type || !file.type.startsWith("image/")) {
+                    showToast("Please choose a JPG, PNG or WEBP image.", "error");
+                    return;
+                }
+                if (file.size > 20 * 1024 * 1024) {
+                    showToast("That photo is too large. Please choose one under 20 MB.", "error");
+                    return;
+                }
+
+                showLoader("Preparing your proof...");
                 const prepared = await compressImageFile(file);
                 showLoader("Analyzing proof with Gemini AI...");
                 const res = await apiFetch("/api/tasks/verify-proof", {
@@ -3211,8 +3237,8 @@ HTML_TEMPLATE = r"""
                     const fileInput = document.getElementById(`proofFile_${taskId}`);
                     if (fileInput) fileInput.value = "";
                     showToast("AI verification complete: " + result.status);
-                    lastDataSignature = "";
-                    loadDashboardData();
+                    // Let the next scheduled refresh pick up the change instead of
+                    // forcing a full DOM rebuild that would wipe in-progress UI.
                 } else {
                     showToast("Error: " + (result.error || "Verification failed"), "error");
                 }
@@ -3220,10 +3246,12 @@ HTML_TEMPLATE = r"""
                 showToast(err.message || "Could not read that image.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
         window.markRoutineDone = async function(routineId) {
+            lockUI();
             showLoader("Updating routine status...");
             try {
                 const res = await apiFetch("/api/routines/complete", {
@@ -3243,6 +3271,7 @@ HTML_TEMPLATE = r"""
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
+                unlockUI();
             }
         };
 
