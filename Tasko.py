@@ -2077,8 +2077,8 @@ HTML_TEMPLATE = r"""
                 if (!currentUser || !authToken || document.hidden) return;
                 loadDashboardData();
                 if (currentUser.role === "CEO" || (currentUser.permissions && currentUser.permissions.includes("handle_approvals"))) {
-                    loadPendingUsers();
-                    loadEmployeesManagement();
+                    if (!uiLocked) loadPendingUsers();
+                    if (!uiLocked) loadEmployeesManagement();
                 }
             }, intervalMs);
         }
@@ -2667,7 +2667,14 @@ HTML_TEMPLATE = r"""
 
         window.toggleEmployeeEdit = function(key) {
             const panel = document.getElementById(`empEdit_${key}`);
-            if (panel) panel.classList.toggle("hidden");
+            if (panel) {
+                if (panel.classList.contains("hidden")) {
+                    lockUI();
+                } else {
+                    unlockUI();
+                }
+                panel.classList.toggle("hidden");
+            }
         };
 
         window.saveEmployee = async function(key, email) {
