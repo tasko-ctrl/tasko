@@ -157,7 +157,7 @@ PHONE_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 
 # --- Email verification (6-digit codes sent through Brevo's transactional API) ---
 BREVO_API_KEY = (os.environ.get("BREVO_API_KEY") or "").strip()
-BREVO_SENDER_EMAIL = (os.environ.get("BREVO_SENDER_EMAIL") or "").strip()
+BREVO_SENDER_EMAIL = (os.environ.get("BREVO_SENDER_EMAIL") or "noreply.tasko@gmail.com").strip()
 BREVO_SENDER_NAME = (os.environ.get("BREVO_SENDER_NAME") or "Tasko").strip() or "Tasko"
 BREVO_EMAIL_URL = os.environ.get("BREVO_EMAIL_URL", "https://api.brevo.com/v3/smtp/email").strip()
 # Enforcement only switches on when sending is actually configured, so a missing key
