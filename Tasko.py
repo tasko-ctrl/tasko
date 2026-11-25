@@ -1,6 +1,9 @@
 import base64
 import binascii
 import datetime
+import hashlib
+import hmac
+import html
 import io
 import json
 import os
@@ -152,6 +155,20 @@ except ValueError:
 PHONE_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
+# --- Email verification (6-digit codes sent through Brevo's transactional API) ---
+BREVO_API_KEY = (os.environ.get("BREVO_API_KEY") or "").strip()
+BREVO_SENDER_EMAIL = (os.environ.get("BREVO_SENDER_EMAIL") or "").strip()
+BREVO_SENDER_NAME = (os.environ.get("BREVO_SENDER_NAME") or "Tasko").strip() or "Tasko"
+BREVO_EMAIL_URL = os.environ.get("BREVO_EMAIL_URL", "https://api.brevo.com/v3/smtp/email").strip()
+# Enforcement only switches on when sending is actually configured, so a missing key
+# in local development or the test suite can never lock every account out.
+EMAIL_VERIFICATION_ENABLED = bool(BREVO_API_KEY and BREVO_SENDER_EMAIL)
+EMAIL_CODE_TTL_SECONDS = 15 * 60
+EMAIL_CODE_RESEND_SECONDS = 60
+EMAIL_CODE_MAX_ATTEMPTS = 5
+EMAIL_CODE_DAILY_LIMIT = 20
+
+
 # --- Structured AI Output Pydantic Schema ---
 class TaskProofEvaluation(BaseModel):
     passed: bool = Field(description="True if the image genuinely fulfills the task requirements, False otherwise.")
@@ -280,7 +297,15 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_messages_company ON messages (company_id, id);
         """)
         # Upgrade older databases: add missing columns (safe to run many times).
-        for column, ddl in (("phone", "phone TEXT DEFAULT ''"), ("phone_verified", "phone_verified INTEGER DEFAULT 0")):
+        for column, ddl in (
+            ("phone", "phone TEXT DEFAULT ''"),
+            ("phone_verified", "phone_verified INTEGER DEFAULT 0"),
+            ("email_verified", "email_verified INTEGER DEFAULT 0"),
+            ("email_code_hash", "email_code_hash TEXT DEFAULT ''"),
+            ("email_code_expires", "email_code_expires INTEGER DEFAULT 0"),
+            ("email_code_attempts", "email_code_attempts INTEGER DEFAULT 0"),
+            ("email_code_sent_at", "email_code_sent_at INTEGER DEFAULT 0"),
+        ):
             existing_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
             if column not in existing_cols:
                 try:
@@ -332,7 +357,8 @@ def serialize_user(row):
         "company_id": row["company_id"],
         "company_name": row["company_name"],
         # Only a yes/no is shared with other people - the number itself stays private.
-        "phone_verified": bool(row["phone_verified"]) if "phone_verified" in row.keys() else False
+        "phone_verified": bool(row["phone_verified"]) if "phone_verified" in row.keys() else False,
+        "email_verified": bool(row["email_verified"]) if "email_verified" in row.keys() else True,
     }
 
 
@@ -381,6 +407,113 @@ def new_company_id(conn):
         candidate = str(secrets.randbelow(9_000_000_000) + 1_000_000_000)
         if not conn.execute("SELECT 1 FROM users WHERE company_id = ?", (candidate,)).fetchone():
             return candidate
+
+
+# ---------------------------------------------------------------------------
+# Email verification helpers
+# ---------------------------------------------------------------------------
+def hash_email_code(code):
+    """Only a keyed hash of the code is stored, never the code itself."""
+    return hmac.new(SECRET_KEY.encode("utf-8"), str(code).encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def new_email_code():
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def send_verification_email(email, name, code):
+    """Send a 6-digit code with Brevo's transactional endpoint.
+
+    Returns (sent, error_message). Brevo requires BREVO_SENDER_EMAIL to be a verified
+    sender and its "authorised IPs" setting must allow the server making the call.
+    """
+    if not EMAIL_VERIFICATION_ENABLED:
+        return False, "Email verification is not configured yet."
+
+    greeting = html.escape(name or "there")
+    body_html = f"""\
+<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#0b0d12;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+  <div style="max-width:520px;margin:0 auto;padding:36px 24px;color:#e6e9f0;">
+    <div style="font-size:20px;font-weight:700;letter-spacing:-0.02em;margin-bottom:24px;">Tasko Workspace</div>
+    <div style="background:#151923;border:1px solid #252b3a;border-radius:14px;padding:28px;">
+      <h1 style="margin:0 0 12px 0;font-size:19px;">Verify your email address</h1>
+      <p style="margin:0 0 20px 0;color:#9aa4b8;font-size:14px;line-height:1.6;">
+        Hi {greeting}, use the code below to finish setting up your Tasko account.
+      </p>
+      <div style="font-size:32px;font-weight:700;letter-spacing:10px;background:#0f131c;border:1px solid #2a3143;border-radius:10px;padding:16px;text-align:center;color:#8b95ff;">{code}</div>
+      <p style="margin:20px 0 0 0;color:#9aa4b8;font-size:13px;line-height:1.6;">
+        This code expires in 15 minutes. If you didn't create a Tasko account, you can ignore this email.
+      </p>
+    </div>
+    <p style="margin:20px 0 0 0;color:#5b6478;font-size:12px;">Tasko Workspace &middot; This is an automated message.</p>
+  </div>
+</body></html>"""
+
+    payload = {
+        "sender": {"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
+        "to": [{"email": email, "name": name or email}],
+        "subject": "Your Tasko verification code",
+        "htmlContent": body_html,
+        "textContent": (
+            f"Hi {name or 'there'}, your Tasko verification code is {code}. "
+            "It expires in 15 minutes."
+        ),
+    }
+    try:
+        response = requests.post(
+            BREVO_EMAIL_URL,
+            json=payload,
+            headers={"api-key": BREVO_API_KEY, "accept": "application/json"},
+            timeout=15,
+        )
+    except requests.RequestException:
+        app.logger.exception("Could not reach Brevo")
+        return False, "We could not reach the email service. Please try again."
+
+    if response.status_code >= 400:
+        app.logger.error("Brevo rejected the verification email (%s): %s",
+                         response.status_code, response.text[:300])
+        detail = response.text.lower()
+        if response.status_code in (401, 403):
+            return False, ("The email service rejected our credentials. Ask the workspace owner to "
+                           "check BREVO_API_KEY and Brevo's authorised IPs.")
+        if "sender" in detail:
+            return False, ("The email service rejected the sender address. Ask the workspace owner to "
+                           "verify BREVO_SENDER_EMAIL in Brevo.")
+        return False, "The email service rejected the message. Please try again later."
+    return True, ""
+
+
+def issue_email_code(email, name):
+    """Generate, store and email a fresh code. Returns (sent, message)."""
+    if not EMAIL_VERIFICATION_ENABLED:
+        return False, "Email verification is not configured yet."
+    if is_rate_limited("email_code", email, EMAIL_CODE_DAILY_LIMIT, 86400):
+        return False, "Too many codes were requested for this address. Please try again tomorrow."
+
+    now = int(time.time())
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT email_code_sent_at FROM users WHERE email = ?", (email,)
+        ).fetchone()
+        if not row:
+            return False, "Account not found."
+        if now - int(row["email_code_sent_at"] or 0) < EMAIL_CODE_RESEND_SECONDS:
+            return False, "Please wait a minute before requesting another code."
+
+    code = new_email_code()
+    sent, error = send_verification_email(email, name, code)
+    if not sent:
+        return False, error
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET email_code_hash = ?, email_code_expires = ?, "
+            "email_code_attempts = 0, email_code_sent_at = ? WHERE email = ?",
+            (hash_email_code(code), now + EMAIL_CODE_TTL_SECONDS, now, email),
+        )
+    return True, ""
 
 
 def assignee_exists(conn, company_id, name):
@@ -899,7 +1032,7 @@ HTML_TEMPLATE = r"""
         input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.2), 0 10px 25px rgba(0, 0, 0, 0.25); }
 
         /* Auth panels: stagger every field in */
-        #loginForm > *, #signupForm > *, #loginCompanyModal > *, #signupCompanyModal > * {
+        #loginForm > *, #signupForm > *, #loginCompanyModal > *, #signupCompanyModal > *, #emailVerifyModal > * {
             animation: fadeInScale 0.5s var(--ease-out-expo) backwards;
         }
         #loginForm > *:nth-child(1), #signupForm > *:nth-child(1) { animation-delay: 0.03s; }
@@ -1256,6 +1389,20 @@ HTML_TEMPLATE = r"""
                     <button type="button" onclick="window.backToSignupCredentials()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Back</button>
                     <button type="button" onclick="window.registerAccount()">Complete Sign Up</button>
                 </div>
+            </div>
+
+            <div id="emailVerifyModal" class="hidden">
+                <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Verify your email</h3>
+                <p style="font-size:0.85em; color:var(--subtext); margin-bottom:16px; line-height:1.5;" id="emailVerifySub">Enter the 6-digit code we sent to your inbox.</p>
+                <input type="text" id="emailVerifyCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"
+                       style="text-align:center; letter-spacing:0.45em; font-size:1.5em; padding:12px;"
+                       onkeydown="if(event.key==='Enter'){window.verifyEmailCode();}">
+                <p id="emailVerifyNote" style="font-size:0.8em; color:var(--subtext); min-height:1.2em; margin:0 0 14px 0;"></p>
+                <button type="button" onclick="window.verifyEmailCode()">Verify &amp; continue</button>
+                <button type="button" id="emailResendBtn" onclick="window.resendEmailCode()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none; margin-top:8px;">Resend code</button>
+                <p style="margin-top:20px; font-size:0.85em; text-align:center; color:var(--subtext);">
+                    Wrong address? <button type="button" onclick="window.backToLoginFromVerify()" style="background:none; border:none; color:var(--accent); cursor:pointer; padding:0; font-size:1em; font-weight:500; text-decoration:underline; box-shadow:none; width:auto; display:inline;">Back to sign in</button>
+                </p>
             </div>
         </div>
     </div>
@@ -2106,11 +2253,13 @@ HTML_TEMPLATE = r"""
             const signupForm = document.getElementById("signupForm");
             const loginCompanyModal = document.getElementById("loginCompanyModal");
             const signupCompanyModal = document.getElementById("signupCompanyModal");
+            const emailVerifyModal = document.getElementById("emailVerifyModal");
 
             if (!loginForm || !signupForm) return;
 
             loginCompanyModal.classList.add("hidden");
             signupCompanyModal.classList.add("hidden");
+            if (emailVerifyModal) emailVerifyModal.classList.add("hidden");
 
             if (formType === "signup") {
                 loginForm.classList.add("hidden");
@@ -2209,7 +2358,14 @@ HTML_TEMPLATE = r"""
                     body: JSON.stringify(signupData)
                 });
                 const result = await res.json().catch(() => ({}));
-                if (res.ok) {
+                if (res.ok && result.verification_required) {
+                    showEmailVerify(result.email, result.email_sent ? "" : (result.message || ""), !!result.email_sent);
+                    if (result.email_sent) {
+                        showToast("We emailed you a verification code.");
+                    } else {
+                        showToast(result.message || "Could not send the verification code.", "error");
+                    }
+                } else if (res.ok) {
                     currentUser = result.user;
                     authToken = result.token;
                     localStorage.setItem("tasko_user", JSON.stringify(currentUser));
@@ -2251,6 +2407,10 @@ HTML_TEMPLATE = r"""
                     localStorage.setItem("tasko_token", authToken);
                     showToast("Logged in successfully!");
                     checkLoginState();
+                } else if (result.code === "email_unverified") {
+                    document.getElementById("loginCompanyModal").classList.add("hidden");
+                    showEmailVerify(result.email || data.email, result.email_sent ? "" : (result.message || ""), !!result.email_sent);
+                    showToast(result.message || "Please verify your email to continue.", result.email_sent ? "info" : "error");
                 } else {
                     showToast(result.error || "Sign in failed.", "error");
                 }
@@ -2259,6 +2419,112 @@ HTML_TEMPLATE = r"""
             } finally {
                 hideLoader();
             }
+        };
+
+        let pendingVerifyEmail = "";
+        let emailResendTimer = null;
+
+        function startEmailResendCooldown(seconds) {
+            const btn = document.getElementById("emailResendBtn");
+            if (!btn) return;
+            if (emailResendTimer) clearInterval(emailResendTimer);
+            let left = seconds;
+            btn.disabled = true;
+            const render = () => {
+                btn.innerText = left > 0 ? `Resend in ${left}s` : "Resend code";
+                btn.style.opacity = left > 0 ? "0.6" : "1";
+            };
+            render();
+            emailResendTimer = setInterval(() => {
+                left -= 1;
+                if (left <= 0) {
+                    clearInterval(emailResendTimer);
+                    emailResendTimer = null;
+                    btn.disabled = false;
+                }
+                render();
+            }, 1000);
+        }
+
+        window.showEmailVerify = function(email, note, emailSent) {
+            pendingVerifyEmail = email;
+            document.getElementById("loginForm").classList.add("hidden");
+            document.getElementById("loginCompanyModal").classList.add("hidden");
+            document.getElementById("signupForm").classList.add("hidden");
+            document.getElementById("signupCompanyModal").classList.add("hidden");
+            document.getElementById("emailVerifyModal").classList.remove("hidden");
+            document.getElementById("emailVerifySub").innerText =
+                `We sent a 6-digit code to ${email}. Enter it below to verify your address.`;
+            document.getElementById("emailVerifyNote").innerText = note || "";
+            const input = document.getElementById("emailVerifyCode");
+            input.value = "";
+            if (emailSent) startEmailResendCooldown(60);
+            setTimeout(() => input.focus(), 60);
+        };
+
+        window.verifyEmailCode = async function() {
+            const code = document.getElementById("emailVerifyCode").value.replace(/\D/g, "");
+            if (code.length !== 6) {
+                document.getElementById("emailVerifyNote").innerText = "Enter the 6-digit code from your email.";
+                return;
+            }
+            showLoader("Checking your code...");
+            try {
+                const res = await fetch("/api/auth/verify-email", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: pendingVerifyEmail, code })
+                });
+                const result = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    currentUser = result.user;
+                    authToken = result.token;
+                    localStorage.setItem("tasko_user", JSON.stringify(currentUser));
+                    localStorage.setItem("tasko_token", authToken);
+                    showToast("Email verified. Welcome to Tasko!");
+                    checkLoginState();
+                } else {
+                    document.getElementById("emailVerifyNote").innerText = result.error || "Verification failed.";
+                    showToast(result.error || "Verification failed.", "error");
+                }
+            } catch (err) {
+                showToast("Network error. Please try again.", "error");
+            } finally {
+                hideLoader();
+            }
+        };
+
+        window.resendEmailCode = async function() {
+            if (!pendingVerifyEmail) return;
+            const btn = document.getElementById("emailResendBtn");
+            btn.disabled = true;
+            try {
+                const res = await fetch("/api/auth/resend-verification", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: pendingVerifyEmail })
+                });
+                const result = await res.json().catch(() => ({}));
+                const note = document.getElementById("emailVerifyNote");
+                if (res.ok) {
+                    note.innerText = "A new code is on its way.";
+                    showToast("Verification code resent.");
+                    startEmailResendCooldown(60);
+                } else {
+                    note.innerText = result.error || "Could not resend the code.";
+                    showToast(result.error || "Could not resend the code.", "error");
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                showToast("Network error. Please try again.", "error");
+                btn.disabled = false;
+            }
+        };
+
+        window.backToLoginFromVerify = function() {
+            document.getElementById("emailVerifyModal").classList.add("hidden");
+            document.getElementById("loginForm").classList.remove("hidden");
+            pendingVerifyEmail = "";
         };
 
         window.logout = function() {
@@ -2278,6 +2544,8 @@ HTML_TEMPLATE = r"""
             if (passwordField) passwordField.value = "";
             const signupPasswordField = document.getElementById("suPassword");
             if (signupPasswordField) signupPasswordField.value = "";
+            if (emailResendTimer) { clearInterval(emailResendTimer); emailResendTimer = null; }
+            pendingVerifyEmail = "";
             document.getElementById("authContainer").style.display = "flex";
             document.getElementById("waitingContainer").classList.add("hidden");
             document.getElementById("dashboardContainer").classList.add("hidden");
@@ -3521,9 +3789,24 @@ def signup():
                 }
                 _insert_or_reapply(conn, existing, fields)
 
+            # Email/password accounts start unverified when enforcement is on. A re-applying
+            # (kicked) user keeps whatever verification state their row already had.
+            if not EMAIL_VERIFICATION_ENABLED:
+                conn.execute("UPDATE users SET email_verified = 1 WHERE email = ?", (email,))
+
             user_row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
             user_dict = serialize_user(user_row)
-            return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
+
+        if EMAIL_VERIFICATION_ENABLED and not user_dict["email_verified"]:
+            sent, message = issue_email_code(user_dict["email"], user_dict["name"])
+            return jsonify({
+                "success": True,
+                "verification_required": True,
+                "email": user_dict["email"],
+                "email_sent": sent,
+                "message": message or "We emailed a 6-digit code to your address.",
+            })
+        return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
     except sqlite3.IntegrityError:
         return jsonify({"error": "Email already registered."}), 409
 
@@ -3543,6 +3826,7 @@ def login():
     if not email or not password or not company_id:
         return jsonify({"error": "Email, password, and Workspace ID are required."}), 400
 
+    verification_needed = False
     with get_db() as conn:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         if not row or not row["password_hash"]:
@@ -3555,8 +3839,95 @@ def login():
         if row["status"] == "Kicked":
             return jsonify({"error": "You were removed from this workspace. Sign up again to re-apply."}), 403
 
+        if EMAIL_VERIFICATION_ENABLED and not row["email_verified"]:
+            verification_needed = True
+            display_email = row["email"]
+            display_name = row["name"]
+        else:
+            user_dict = serialize_user(row)
+
+    if verification_needed:
+        # Send outside the database connection so a slow mail API never holds a lock.
+        sent, message = issue_email_code(display_email, display_name)
+        return jsonify({
+            "error": "Please verify your email address to finish signing in.",
+            "code": "email_unverified",
+            "email": display_email,
+            "email_sent": sent,
+            "message": message or "We emailed you a new 6-digit code.",
+        }), 403
+
+    return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
+
+
+@app.route("/api/auth/resend-verification", methods=["POST"])
+@rate_limit("verify_resend", 20, 3600)
+def resend_verification():
+    if not EMAIL_VERIFICATION_ENABLED:
+        return jsonify({"error": "Email verification is not configured yet."}), 503
+
+    data = get_body()
+    email = clean_text(data.get("email"), 254).lower()
+    if not EMAIL_RE.match(email):
+        return jsonify({"error": "Please enter a valid email address."}), 400
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT name, email_verified FROM users WHERE email = ?", (email,)
+        ).fetchone()
+
+    # Never reveal whether an address is registered; only report delivery problems for
+    # accounts that genuinely still need a code.
+    if row is not None and not row["email_verified"]:
+        sent, message = issue_email_code(email, row["name"])
+        if not sent:
+            status = 429 if ("wait" in message.lower() or "too many" in message.lower()) else 502
+            return jsonify({"error": message}), status
+
+    return jsonify({
+        "success": True,
+        "message": "If that account still needs verification, a new code is on its way.",
+    })
+
+
+@app.route("/api/auth/verify-email", methods=["POST"])
+@rate_limit("verify_email", 30, 600)
+def verify_email():
+    data = get_body()
+    email = clean_text(data.get("email"), 254).lower()
+    code = clean_text(data.get("code"), 12)
+
+    if not EMAIL_RE.match(email) or not code:
+        return jsonify({"error": "Enter the 6-digit code from your email."}), 400
+
+    now = int(time.time())
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if not row:
+            return jsonify({"error": "That code is invalid or has expired."}), 400
+        if row["email_verified"]:
+            user_dict = serialize_user(row)
+            return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
+        if not row["email_code_hash"] or int(row["email_code_expires"] or 0) < now:
+            return jsonify({"error": "That code has expired. Please request a new one."}), 400
+        if int(row["email_code_attempts"] or 0) >= EMAIL_CODE_MAX_ATTEMPTS:
+            return jsonify({"error": "Too many incorrect attempts. Please request a new code."}), 429
+        if not hmac.compare_digest(row["email_code_hash"], hash_email_code(code)):
+            conn.execute(
+                "UPDATE users SET email_code_attempts = email_code_attempts + 1 WHERE email = ?",
+                (email,),
+            )
+            return jsonify({"error": "That code is incorrect. Please check and try again."}), 400
+
+        conn.execute(
+            "UPDATE users SET email_verified = 1, email_code_hash = '', email_code_expires = 0, "
+            "email_code_attempts = 0 WHERE email = ?",
+            (email,),
+        )
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         user_dict = serialize_user(row)
-        return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
+
+    return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
 
 
 @app.route("/api/social-login", methods=["POST"])
@@ -3599,6 +3970,11 @@ def social_login():
 
             if str(row["company_id"]) != company_id:
                 return jsonify({"error": "Invalid Workspace ID for this account."}), 401
+
+            # Google and Apple only issue tokens for addresses they have already verified.
+            if not row["email_verified"]:
+                conn.execute("UPDATE users SET email_verified = 1 WHERE email = ?", (email,))
+                row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
 
             user_dict = serialize_user(row)
             return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})

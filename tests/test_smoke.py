@@ -26,8 +26,18 @@ import Tasko  # noqa: E402
 @pytest.fixture()
 def client():
     Tasko.app.config.update(TESTING=True)
+    # A developer .env may configure Brevo; tests opt in to verification per-test.
+    Tasko.EMAIL_VERIFICATION_ENABLED = False
     with Tasko.app.test_client() as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def _clear_rate_limits():
+    """Keep tests independent: the in-memory limiter is shared across the session."""
+    with Tasko._rate_lock:
+        Tasko._rate_hits.clear()
+    yield
 
 
 def signup(client, name, email, role="CEO", company_name="Acme", company_id=""):
@@ -410,3 +420,88 @@ def test_retired_models_return_a_clear_error(client, monkeypatch):
     })
     assert response.status_code == 503
     assert "GEMINI_MODEL" in response.get_json()["error"]
+
+
+def _enable_email_verification(monkeypatch):
+    import re
+
+    sent = []
+
+    def fake_send(email, name, code):
+        sent.append({"email": email, "name": name, "code": code})
+        return True, ""
+
+    monkeypatch.setattr(Tasko, "EMAIL_VERIFICATION_ENABLED", True)
+    monkeypatch.setattr(Tasko, "send_verification_email", fake_send)
+    return sent, re
+
+
+def test_email_verification_blocks_login_until_code_is_entered(client, monkeypatch):
+    sent, re = _enable_email_verification(monkeypatch)
+
+    created = client.post("/api/signup", json={
+        "name": "Nina", "email": "nina@verify.test", "password": "correct-horse-battery",
+        "role": "CEO", "company_name": "Verify Co",
+    })
+    assert created.status_code == 200, created.get_json()
+    body = created.get_json()
+    assert body["verification_required"] is True
+    assert body["email_sent"] is True
+    assert "token" not in body
+    assert len(sent) == 1
+    code = sent[0]["code"]
+    assert re.fullmatch(r"\d{6}", code)
+
+    with Tasko.get_db() as conn:
+        row = conn.execute("SELECT company_id, email_verified FROM users WHERE email = ?",
+                           ("nina@verify.test",)).fetchone()
+    assert row["email_verified"] == 0
+    company_id = str(row["company_id"])
+
+    credentials = {"email": "nina@verify.test", "password": "correct-horse-battery",
+                   "company_id": company_id}
+    blocked = client.post("/api/login", json=credentials)
+    assert blocked.status_code == 403
+    assert blocked.get_json()["code"] == "email_unverified"
+    # The code from signup is still inside its 60 second resend window.
+    assert len(sent) == 1
+
+    wrong_code = "000000" if code != "000000" else "111111"
+    wrong = client.post("/api/auth/verify-email", json={"email": "nina@verify.test", "code": wrong_code})
+    assert wrong.status_code == 400
+
+    verified = client.post("/api/auth/verify-email", json={"email": "nina@verify.test", "code": code})
+    assert verified.status_code == 200, verified.get_json()
+    assert verified.get_json()["user"]["email_verified"] is True
+    assert verified.get_json()["token"]
+
+    assert client.post("/api/login", json=credentials).status_code == 200
+
+
+def test_expired_email_code_is_rejected(client, monkeypatch):
+    import time
+
+    sent, _ = _enable_email_verification(monkeypatch)
+    client.post("/api/signup", json={
+        "name": "Omar", "email": "omar@verify.test", "password": "correct-horse-battery",
+        "role": "CEO", "company_name": "Expiry Co",
+    })
+    with Tasko.get_db() as conn:
+        conn.execute("UPDATE users SET email_code_expires = ? WHERE email = ?",
+                     (int(time.time()) - 1, "omar@verify.test"))
+
+    response = client.post("/api/auth/verify-email",
+                           json={"email": "omar@verify.test", "code": sent[0]["code"]})
+    assert response.status_code == 400
+    assert "expired" in response.get_json()["error"].lower()
+
+
+def test_social_login_counts_as_verified_email(client):
+    ceo = signup(client, "Olga", "olga@social.test", company_name="Social Co")
+    company_id = str(ceo["user"]["company_id"])
+    oauth_token = Tasko.create_oauth_token("olga.new@social.test", "Olga New", "Google")
+
+    response = client.post("/api/social-login",
+                           json={"oauth_token": oauth_token, "company_id": company_id})
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()["user"]["email_verified"] is True

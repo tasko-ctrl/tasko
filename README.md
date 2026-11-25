@@ -14,6 +14,7 @@ Google/Apple sign-in and optional Twilio phone verification.
 - Workspace chat with incremental polling
 - Activity log, employee role/permission editing, kick (with re-apply support)
 - Optional SMS phone verification through Twilio Verify
+- Email verification with 6-digit codes sent through Brevo
 - Downloadable product documentation, linked from the app and landing page
 
 ## Product documentation
@@ -50,6 +51,22 @@ AI proof checks try `GEMINI_MODEL` first (comma-separated), then fall back to
 current built-in model names, so a retired model never breaks verification.
 If a proof check fails, the toast says whether the key or the model needs fixing.
 
+## Email verification
+
+New email/password accounts get a 6-digit code (valid for 15 minutes) and cannot
+sign in until it is entered; Google and Apple sign-ins are treated as verified
+because those providers verify the address. Set:
+
+- `BREVO_API_KEY` - Brevo API v3 key,
+- `BREVO_SENDER_EMAIL` - a sender verified in Brevo (default `noreply.tasko@gmail.com`),
+- `BREVO_SENDER_NAME` - display name (default `Tasko`).
+
+Verification only switches on when the key **and** sender are set, so local dev and
+the test suite keep working without it. Brevo's *Security -> Authorised IPs* must
+allow the server; turn the restriction off for Railway because its egress IP changes.
+The app uses Brevo's transactional endpoint (`POST /v3/smtp/email`), not the
+campaign API in their sample code.
+
 Environment variables are documented in `.env.example`. Do not commit `.env`.
 
 ## Deploy on Railway
@@ -79,6 +96,7 @@ Back up the whole `DATA_DIR` volume. SQLite runs in WAL mode; copy the `.db`,
 | --- | --- | --- |
 | POST | `/api/signup` | create a workspace (CEO) or join one (employee) |
 | POST | `/api/login` | email + password + Workspace ID |
+| POST | `/api/auth/verify-email`, `/api/auth/resend-verification` | email verification codes |
 | POST | `/api/auth/google`, `/api/auth/apple` | verify a social token |
 | POST | `/api/social-login` | exchange the verified token + Workspace ID |
 | GET | `/api/data` | tasks, routines, history for the caller |
