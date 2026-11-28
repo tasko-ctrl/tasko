@@ -2,7 +2,7 @@
 
 Team accountability workspace: assign tasks, run daily routines, chat, and let
 Gemini verify photo proof of completion. Built with Flask + SQLite + JWT, with
-Google/Apple sign-in and optional Twilio phone verification.
+mandatory e-mail verification (6-digit code via Brevo) and optional Twilio phone verification.
 
 ## Features
 
@@ -13,8 +13,8 @@ Google/Apple sign-in and optional Twilio phone verification.
 - List and Kanban views, filters, search and sorting
 - Workspace chat with incremental polling
 - Activity log, employee role/permission editing, kick (with re-apply support)
+- Sign-up requires a 6-digit code e-mailed through Brevo (no account exists until it is entered)
 - Optional SMS phone verification through Twilio Verify
-- Email verification with 6-digit codes sent through Brevo
 - Downloadable product documentation, linked from the app and landing page
 
 ## Product documentation
@@ -51,22 +51,6 @@ AI proof checks try `GEMINI_MODEL` first (comma-separated), then fall back to
 current built-in model names, so a retired model never breaks verification.
 If a proof check fails, the toast says whether the key or the model needs fixing.
 
-## Email verification
-
-New email/password accounts get a 6-digit code (valid for 15 minutes) and cannot
-sign in until it is entered; Google and Apple sign-ins are treated as verified
-because those providers verify the address. Set:
-
-- `BREVO_API_KEY` - Brevo API v3 key,
-- `BREVO_SENDER_EMAIL` - a sender verified in Brevo (default `noreply.tasko@gmail.com`),
-- `BREVO_SENDER_NAME` - display name (default `Tasko`).
-
-Verification only switches on when the key **and** sender are set, so local dev and
-the test suite keep working without it. Brevo's *Security -> Authorised IPs* must
-allow the server; turn the restriction off for Railway because its egress IP changes.
-The app uses Brevo's transactional endpoint (`POST /v3/smtp/email`), not the
-campaign API in their sample code.
-
 Environment variables are documented in `.env.example`. Do not commit `.env`.
 
 ## Deploy on Railway
@@ -74,7 +58,8 @@ Environment variables are documented in `.env.example`. Do not commit `.env`.
 1. Push the repository and create a Railway service from it.
 2. Add a **Volume** mounted at `/data`.
 3. Set `DATA_DIR=/data` (the SQLite database, `secret.key` and `proofs/` live there).
-4. Set `SECRET_KEY`, `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID`, etc.
+4. Set `SECRET_KEY`, `GEMINI_API_KEY`, `BREVO_API_KEY` and `EMAIL_FROM`, etc.
+   Without the two Brevo variables nobody can sign up (the app shows a clear message).
 5. Health check path: `/healthz`.
 
 `Procfile` runs `gunicorn Tasko:app --workers 2 --threads 4`.
@@ -94,11 +79,10 @@ Back up the whole `DATA_DIR` volume. SQLite runs in WAL mode; copy the `.db`,
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/api/signup` | create a workspace (CEO) or join one (employee) |
-| POST | `/api/login` | email + password + Workspace ID |
-| POST | `/api/auth/verify-email`, `/api/auth/resend-verification` | email verification codes |
-| POST | `/api/auth/google`, `/api/auth/apple` | verify a social token |
-| POST | `/api/social-login` | exchange the verified token + Workspace ID |
+| POST | `/api/signup` | start a sign-up and e-mail a 6-digit code (no account yet) |
+| POST | `/api/email/verify` | check the code, create the account, return the login token |
+| POST | `/api/email/resend` | send a new code (60 s cooldown, 5 per hour per address) |
+| POST | `/api/login` | email + password + Workspace ID (also resumes an unfinished verification) |
 | GET | `/api/data` | tasks, routines, history for the caller |
 | POST | `/api/tasks`, `/api/tasks/update`, `/api/tasks/delete` | manage tasks |
 | POST | `/api/tasks/verify-proof` | upload an image for AI verification |
@@ -118,8 +102,10 @@ pytest -q
 
 ## Known limitations / next steps
 
-- Email ownership is not verified and there is no password reset yet. For a
-  public launch, add email verification and a reset flow (e.g. Resend or Postmark).
+- Accounts created before e-mail verification existed were not verified. There is no
+  password reset yet; it can reuse the same code flow.
+- Brevo can only send from an address you verified. Without your own domain, mail from a
+  free address (e.g. Gmail) may land in spam; add a custom domain before a public launch.
 - SQLite is fine for small teams. The workspace refresh polls `/api/data`; if a
   workspace grows beyond a few dozen active users, move to Postgres and
   WebSockets/SSE for chat.

@@ -3,7 +3,6 @@ import binascii
 import datetime
 import hashlib
 import hmac
-import html
 import io
 import json
 import os
@@ -21,9 +20,7 @@ import jwt
 import requests
 from flask import Flask, jsonify, request, render_template, render_template_string, send_file
 from google import genai
-from google.auth.transport import requests as google_requests
 from google.genai import types
-from google.oauth2 import id_token as google_id_token
 from PIL import Image, ImageDraw
 from pydantic import BaseModel, Field
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -101,8 +98,6 @@ def load_secret_key():
 
 SECRET_KEY = load_secret_key()
 GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip() or None
-GOOGLE_CLIENT_ID = (os.environ.get("GOOGLE_CLIENT_ID") or "").strip()
-APPLE_CLIENT_ID = (os.environ.get("APPLE_CLIENT_ID") or "").strip() or "com.tasko.workspace.app"
 
 # Gemini models are retired from time to time, so these are configurable. The app tries them in order.
 # A configured name always comes first, then these known-current fallbacks, so an outdated
@@ -134,7 +129,23 @@ MAX_PROOF_BYTES = 6 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MIN_PASSWORD_LENGTH = 8
 EMAIL_RE = re.compile(r"^[^@\s'\"<>\\]+@[^@\s'\"<>\\]+\.[^@\s'\"<>\\]+$")
-APPLE_ISSUER = "https://appleid.apple.com"
+
+# --- E-mail verification (6-digit codes are sent through Brevo's web API) ---
+# Set BREVO_API_KEY and EMAIL_FROM in Railway. EMAIL_FROM must be a sender address you verified inside Brevo.
+BREVO_API_KEY = (os.environ.get("BREVO_API_KEY") or "").strip()
+EMAIL_FROM = (os.environ.get("EMAIL_FROM") or "").strip()
+EMAIL_FROM_NAME = (os.environ.get("EMAIL_FROM_NAME") or "").strip() or "Tasko"
+EMAIL_ENABLED = bool(BREVO_API_KEY and EMAIL_FROM)
+# Local testing only: print the code in the console instead of e-mailing it (set EMAIL_DEV_PRINT_CODES=1).
+EMAIL_DEV_PRINT_CODES = (os.environ.get("EMAIL_DEV_PRINT_CODES") or "").strip().lower() in ("1", "true", "yes")
+EMAIL_CODE_TTL = 600           # a code works for 10 minutes
+EMAIL_CODE_MAX_ATTEMPTS = 5    # wrong guesses allowed per code
+EMAIL_RESEND_COOLDOWN = 60     # seconds between "resend" requests
+EMAIL_HOURLY_LIMIT = 5         # e-mails per address per hour
+try:
+    EMAIL_DAILY_LIMIT = int(os.environ.get("EMAIL_DAILY_LIMIT", "250"))  # whole-app cap (Brevo free plan = 300/day)
+except ValueError:
+    EMAIL_DAILY_LIMIT = 250
 
 # --- Phone verification (SMS codes are sent and checked by Twilio Verify) ---
 # Set these 3 variables in Railway to switch the feature on. If any is missing, the phone card stays hidden.
@@ -153,20 +164,6 @@ try:
 except ValueError:
     SMS_DAILY_LIMIT = 200
 PHONE_RE = re.compile(r"^\+[1-9]\d{7,14}$")
-
-
-# --- Email verification (6-digit codes sent through Brevo's transactional API) ---
-BREVO_API_KEY = (os.environ.get("BREVO_API_KEY") or "").strip()
-BREVO_SENDER_EMAIL = (os.environ.get("BREVO_SENDER_EMAIL") or "noreply.tasko@gmail.com").strip()
-BREVO_SENDER_NAME = (os.environ.get("BREVO_SENDER_NAME") or "Tasko").strip() or "Tasko"
-BREVO_EMAIL_URL = os.environ.get("BREVO_EMAIL_URL", "https://api.brevo.com/v3/smtp/email").strip()
-# Enforcement only switches on when sending is actually configured, so a missing key
-# in local development or the test suite can never lock every account out.
-EMAIL_VERIFICATION_ENABLED = bool(BREVO_API_KEY and BREVO_SENDER_EMAIL)
-EMAIL_CODE_TTL_SECONDS = 15 * 60
-EMAIL_CODE_RESEND_SECONDS = 60
-EMAIL_CODE_MAX_ATTEMPTS = 5
-EMAIL_CODE_DAILY_LIMIT = 20
 
 
 # --- Structured AI Output Pydantic Schema ---
@@ -289,6 +286,26 @@ def init_db():
                 phone TEXT NOT NULL,
                 ts INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS pending_signups (
+                email TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL,
+                company_id TEXT DEFAULT '',
+                company_name TEXT DEFAULT '',
+                token_hash TEXT NOT NULL,
+                code_hash TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                attempts INTEGER DEFAULT 0,
+                last_sent INTEGER DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS email_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL,
+                ts INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_email_log_ts ON email_log (email, ts);
             CREATE INDEX IF NOT EXISTS idx_sms_log_ts ON sms_log (ts);
             CREATE INDEX IF NOT EXISTS idx_users_company ON users (company_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_company ON tasks (company_id, id);
@@ -297,15 +314,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_messages_company ON messages (company_id, id);
         """)
         # Upgrade older databases: add missing columns (safe to run many times).
-        for column, ddl in (
-            ("phone", "phone TEXT DEFAULT ''"),
-            ("phone_verified", "phone_verified INTEGER DEFAULT 0"),
-            ("email_verified", "email_verified INTEGER DEFAULT 0"),
-            ("email_code_hash", "email_code_hash TEXT DEFAULT ''"),
-            ("email_code_expires", "email_code_expires INTEGER DEFAULT 0"),
-            ("email_code_attempts", "email_code_attempts INTEGER DEFAULT 0"),
-            ("email_code_sent_at", "email_code_sent_at INTEGER DEFAULT 0"),
-        ):
+        for column, ddl in (("phone", "phone TEXT DEFAULT ''"), ("phone_verified", "phone_verified INTEGER DEFAULT 0")):
             existing_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
             if column not in existing_cols:
                 try:
@@ -327,6 +336,8 @@ def init_db():
         # One verified phone number can belong to only ONE account.
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_verified ON users (phone) WHERE phone_verified = 1")
         conn.execute("DELETE FROM sms_log WHERE ts < ?", (int(time.time()) - 7 * 86400,))
+        conn.execute("DELETE FROM email_log WHERE ts < ?", (int(time.time()) - 2 * 86400,))
+        conn.execute("DELETE FROM pending_signups WHERE created_at < ?", (int(time.time()) - 86400,))
         # Housekeeping: routine check-offs older than 90 days are no longer needed.
         cutoff = (now_local() - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
         conn.execute("DELETE FROM daily_logs WHERE log_date < ?", (cutoff,))
@@ -357,8 +368,7 @@ def serialize_user(row):
         "company_id": row["company_id"],
         "company_name": row["company_name"],
         # Only a yes/no is shared with other people - the number itself stays private.
-        "phone_verified": bool(row["phone_verified"]) if "phone_verified" in row.keys() else False,
-        "email_verified": bool(row["email_verified"]) if "email_verified" in row.keys() else True,
+        "phone_verified": bool(row["phone_verified"]) if "phone_verified" in row.keys() else False
     }
 
 
@@ -407,113 +417,6 @@ def new_company_id(conn):
         candidate = str(secrets.randbelow(9_000_000_000) + 1_000_000_000)
         if not conn.execute("SELECT 1 FROM users WHERE company_id = ?", (candidate,)).fetchone():
             return candidate
-
-
-# ---------------------------------------------------------------------------
-# Email verification helpers
-# ---------------------------------------------------------------------------
-def hash_email_code(code):
-    """Only a keyed hash of the code is stored, never the code itself."""
-    return hmac.new(SECRET_KEY.encode("utf-8"), str(code).encode("utf-8"), hashlib.sha256).hexdigest()
-
-
-def new_email_code():
-    return f"{secrets.randbelow(1_000_000):06d}"
-
-
-def send_verification_email(email, name, code):
-    """Send a 6-digit code with Brevo's transactional endpoint.
-
-    Returns (sent, error_message). Brevo requires BREVO_SENDER_EMAIL to be a verified
-    sender and its "authorised IPs" setting must allow the server making the call.
-    """
-    if not EMAIL_VERIFICATION_ENABLED:
-        return False, "Email verification is not configured yet."
-
-    greeting = html.escape(name or "there")
-    body_html = f"""\
-<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#0b0d12;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-  <div style="max-width:520px;margin:0 auto;padding:36px 24px;color:#e6e9f0;">
-    <div style="font-size:20px;font-weight:700;letter-spacing:-0.02em;margin-bottom:24px;">Tasko Workspace</div>
-    <div style="background:#151923;border:1px solid #252b3a;border-radius:14px;padding:28px;">
-      <h1 style="margin:0 0 12px 0;font-size:19px;">Verify your email address</h1>
-      <p style="margin:0 0 20px 0;color:#9aa4b8;font-size:14px;line-height:1.6;">
-        Hi {greeting}, use the code below to finish setting up your Tasko account.
-      </p>
-      <div style="font-size:32px;font-weight:700;letter-spacing:10px;background:#0f131c;border:1px solid #2a3143;border-radius:10px;padding:16px;text-align:center;color:#8b95ff;">{code}</div>
-      <p style="margin:20px 0 0 0;color:#9aa4b8;font-size:13px;line-height:1.6;">
-        This code expires in 15 minutes. If you didn't create a Tasko account, you can ignore this email.
-      </p>
-    </div>
-    <p style="margin:20px 0 0 0;color:#5b6478;font-size:12px;">Tasko Workspace &middot; This is an automated message.</p>
-  </div>
-</body></html>"""
-
-    payload = {
-        "sender": {"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
-        "to": [{"email": email, "name": name or email}],
-        "subject": "Your Tasko verification code",
-        "htmlContent": body_html,
-        "textContent": (
-            f"Hi {name or 'there'}, your Tasko verification code is {code}. "
-            "It expires in 15 minutes."
-        ),
-    }
-    try:
-        response = requests.post(
-            BREVO_EMAIL_URL,
-            json=payload,
-            headers={"api-key": BREVO_API_KEY, "accept": "application/json"},
-            timeout=15,
-        )
-    except requests.RequestException:
-        app.logger.exception("Could not reach Brevo")
-        return False, "We could not reach the email service. Please try again."
-
-    if response.status_code >= 400:
-        app.logger.error("Brevo rejected the verification email (%s): %s",
-                         response.status_code, response.text[:300])
-        detail = response.text.lower()
-        if response.status_code in (401, 403):
-            return False, ("The email service rejected our credentials. Ask the workspace owner to "
-                           "check BREVO_API_KEY and Brevo's authorised IPs.")
-        if "sender" in detail:
-            return False, ("The email service rejected the sender address. Ask the workspace owner to "
-                           "verify BREVO_SENDER_EMAIL in Brevo.")
-        return False, "The email service rejected the message. Please try again later."
-    return True, ""
-
-
-def issue_email_code(email, name):
-    """Generate, store and email a fresh code. Returns (sent, message)."""
-    if not EMAIL_VERIFICATION_ENABLED:
-        return False, "Email verification is not configured yet."
-    if is_rate_limited("email_code", email, EMAIL_CODE_DAILY_LIMIT, 86400):
-        return False, "Too many codes were requested for this address. Please try again tomorrow."
-
-    now = int(time.time())
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT email_code_sent_at FROM users WHERE email = ?", (email,)
-        ).fetchone()
-        if not row:
-            return False, "Account not found."
-        if now - int(row["email_code_sent_at"] or 0) < EMAIL_CODE_RESEND_SECONDS:
-            return False, "Please wait a minute before requesting another code."
-
-    code = new_email_code()
-    sent, error = send_verification_email(email, name, code)
-    if not sent:
-        return False, error
-
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE users SET email_code_hash = ?, email_code_expires = ?, "
-            "email_code_attempts = 0, email_code_sent_at = ? WHERE email = ?",
-            (hash_email_code(code), now + EMAIL_CODE_TTL_SECONDS, now, email),
-        )
-    return True, ""
 
 
 def assignee_exists(conn, company_id, name):
@@ -571,20 +474,6 @@ def create_token(user_dict):
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 
-def create_oauth_token(email, name, provider):
-    """Short-lived proof that Google/Apple verified this email. NOT usable as a login session."""
-    return jwt.encode(
-        {
-            "type": "oauth",
-            "email": email,
-            "name": name,
-            "provider": provider,
-            "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10)
-        },
-        SECRET_KEY, algorithm="HS256"
-    )
-
-
 def require_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -599,7 +488,7 @@ def require_auth(f):
         except jwt.InvalidTokenError:
             return jsonify({"error": "Invalid session token."}), 401
 
-        # A Google/Apple "verification" token must never be accepted as a login session.
+        # Only real login tokens (type "session") are accepted.
         if payload.get("type") != "session" or "provider" in payload:
             return jsonify({"error": "Invalid session token."}), 401
 
@@ -650,18 +539,18 @@ def add_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-    # CSP: allow only our own origin plus the Google & Apple auth SDKs we load.
+    # CSP: allow only our own origin.
     # The app itself is a single server-rendered page with inline <script> and
     # inline onclick handlers, so 'unsafe-inline' is required for them to run.
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://accounts.google.com https://appleid.cdn-apple.com; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
         "font-src 'self' data:; "
-        "connect-src 'self' https://accounts.google.com https://appleid.apple.com; "
-        "frame-src https://accounts.google.com https://appleid.apple.com; "
+        "connect-src 'self'; "
+        "frame-src 'none'; "
         "object-src 'none'; "
         "base-uri 'self'; "
         "form-action 'self'; "
@@ -732,9 +621,6 @@ HTML_TEMPLATE = r"""
     <link rel="icon" type="image/png" href="/favicon.ico">
     <link rel="apple-touch-icon" href="/favicon.ico">
     
-    <!-- Google & Apple Auth SDKs -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="text/javascript" src="https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js"></script>
 
     <style>
         :root {
@@ -1032,7 +918,7 @@ HTML_TEMPLATE = r"""
         input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.2), 0 10px 25px rgba(0, 0, 0, 0.25); }
 
         /* Auth panels: stagger every field in */
-        #loginForm > *, #signupForm > *, #loginCompanyModal > *, #signupCompanyModal > *, #emailVerifyModal > * {
+        #loginForm > *, #signupForm > *, #loginCompanyModal > *, #signupCompanyModal > * {
             animation: fadeInScale 0.5s var(--ease-out-expo) backwards;
         }
         #loginForm > *:nth-child(1), #signupForm > *:nth-child(1) { animation-delay: 0.03s; }
@@ -1046,7 +932,7 @@ HTML_TEMPLATE = r"""
         #loginForm > *:nth-child(n+9), #signupForm > *:nth-child(n+9) { animation-delay: 0.27s; }
 
         /* Auth / waiting screens get drifting aurora orbs */
-        #authContainer, #waitingContainer { overflow: hidden; }
+        #authContainer, #waitingContainer { overflow: hidden; overflow: clip; }
         #authContainer::before, #authContainer::after,
         #waitingContainer::before, #waitingContainer::after {
             content: ""; position: absolute; border-radius: 50%; filter: blur(70px);
@@ -1148,7 +1034,7 @@ HTML_TEMPLATE = r"""
         @keyframes toastDrain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
         /* Modals */
-        #feedbackModal .card, #socialWorkspaceModal .card { animation: modalPop 0.42s var(--ease-spring) backwards; }
+        #feedbackModal .card { animation: modalPop 0.42s var(--ease-spring) backwards; }
         .cmd-box { animation: modalPop 0.35s var(--ease-spring) backwards; }
         #cmdPaletteModal.active .cmd-box { animation: modalPop 0.35s var(--ease-spring); }
         #feedbackModal.active .card { animation: modalPop 0.42s var(--ease-spring); }
@@ -1294,19 +1180,6 @@ HTML_TEMPLATE = r"""
         </div>
     </div>
 
-    <!-- Workspace ID Modal for Social Logins -->
-    <div id="socialWorkspaceModal" class="hidden" style="position:fixed; inset:0; background:rgba(7, 9, 14, 0.85); backdrop-filter:blur(6px); z-index:9999; display:flex; align-items:center; justify-content:center;">
-        <div class="card" style="width:100%; max-width:400px; margin:0;">
-            <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;" id="socialModalTitle">Enter Workspace ID</h3>
-            <p style="font-size:0.85em; color:var(--subtext); margin-bottom:14px;">Please provide your company's Workspace ID to link your social account.</p>
-            <input type="text" id="socialWorkspaceIdInput" placeholder="Workspace Company ID">
-            <div style="display:flex; gap:10px;">
-                <button type="button" onclick="closeSocialWorkspaceModal()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Cancel</button>
-                <button type="button" onclick="submitSocialWorkspaceId()">Continue</button>
-            </div>
-        </div>
-    </div>
-
     <div id="authContainer" style="width:100%; height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-color); position: relative; z-index: 5;">
         <div class="card" style="width: 100%; max-width: 420px; margin: 0; animation: fadeInScale 0.5s var(--ease-out-expo);">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:28px;">
@@ -1320,21 +1193,6 @@ HTML_TEMPLATE = r"""
             <div id="loginForm">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Sign in to your account</h3>
                 
-                <button type="button" class="social-btn" onclick="triggerGoogleSignIn()">
-                    <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h5.51c-.24 1.38-1.54 4.05-5.51 4.05-3.32 0-6.03-2.75-6.03-6.13s2.71-6.13 6.03-6.13c1.89 0 3.15.81 3.87 1.5l2.04-1.99C16.89 3.73 14.88 3 12.18 3 7.12 3 3 7.12 3 12.18s4.12 9.18 9.18 9.18c5.3 0 8.81-3.73 8.81-8.98 0-.62-.07-1.09-.17-1.28z"/></svg>
-                    Continue with Google
-                </button>
-                <button type="button" class="social-btn" onclick="triggerAppleSignIn()">
-                    <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 5.75c.61-.75 1.02-1.8 0.91-2.85-.88.04-1.95.59-2.57 1.34-.57.67-1.07 1.74-.94 2.78 1 .08 1.99-.48 2.6-1.27z"/></svg>
-                    Continue with Apple
-                </button>
-
-                <div style="display:flex; align-items:center; margin:18px 0; color:var(--subtext); font-size:0.8em;">
-                    <div style="flex:1; height:1px; background:var(--border-color);"></div>
-                    <span style="padding:0 10px;">OR WITH EMAIL</span>
-                    <div style="flex:1; height:1px; background:var(--border-color);"></div>
-                </div>
-
                 <input type="email" id="loginEmail" placeholder="name@company.com" autocomplete="email">
                 <input type="password" id="loginPassword" placeholder="••••••••••••" autocomplete="current-password">
                 <button type="button" onclick="nextLoginStep()">Continue to Workspace ID</button>
@@ -1354,21 +1212,6 @@ HTML_TEMPLATE = r"""
             <div id="signupForm" class="hidden">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Create a new account</h3>
                 
-                <button type="button" class="social-btn" onclick="triggerGoogleSignIn()">
-                    <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h5.51c-.24 1.38-1.54 4.05-5.51 4.05-3.32 0-6.03-2.75-6.03-6.13s2.71-6.13 6.03-6.13c1.89 0 3.15.81 3.87 1.5l2.04-1.99C16.89 3.73 14.88 3 12.18 3 7.12 3 3 7.12 3 12.18s4.12 9.18 9.18 9.18c5.3 0 8.81-3.73 8.81-8.98 0-.62-.07-1.09-.17-1.28z"/></svg>
-                    Sign up with Google
-                </button>
-                <button type="button" class="social-btn" onclick="triggerAppleSignIn()">
-                    <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 5.75c.61-.75 1.02-1.8 0.91-2.85-.88.04-1.95.59-2.57 1.34-.57.67-1.07 1.74-.94 2.78 1 .08 1.99-.48 2.6-1.27z"/></svg>
-                    Continue with Apple
-                </button>
-
-                <div style="display:flex; align-items:center; margin:18px 0; color:var(--subtext); font-size:0.8em;">
-                    <div style="flex:1; height:1px; background:var(--border-color);"></div>
-                    <span style="padding:0 10px;">OR WITH EMAIL</span>
-                    <div style="flex:1; height:1px; background:var(--border-color);"></div>
-                </div>
-
                 <input type="text" id="suName" placeholder="Full Name" autocomplete="name">
                 <input type="email" id="suEmail" placeholder="name@company.com" autocomplete="email">
                 <input type="password" id="suPassword" placeholder="••••••••••••" autocomplete="new-password">
@@ -1391,18 +1234,19 @@ HTML_TEMPLATE = r"""
                 </div>
             </div>
 
-            <div id="emailVerifyModal" class="hidden">
+            <div id="verifyEmailPanel" class="hidden">
                 <h3 style="color:var(--subtext); font-size:0.9em; margin-bottom:18px; font-weight: 500;">Verify your email</h3>
-                <p style="font-size:0.85em; color:var(--subtext); margin-bottom:16px; line-height:1.5;" id="emailVerifySub">Enter the 6-digit code we sent to your inbox.</p>
-                <input type="text" id="emailVerifyCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"
-                       style="text-align:center; letter-spacing:0.45em; font-size:1.5em; padding:12px;"
-                       onkeydown="if(event.key==='Enter'){window.verifyEmailCode();}">
-                <p id="emailVerifyNote" style="font-size:0.8em; color:var(--subtext); min-height:1.2em; margin:0 0 14px 0;"></p>
-                <button type="button" onclick="window.verifyEmailCode()">Verify &amp; continue</button>
-                <button type="button" id="emailResendBtn" onclick="window.resendEmailCode()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none; margin-top:8px;">Resend code</button>
-                <p style="margin-top:20px; font-size:0.85em; text-align:center; color:var(--subtext);">
-                    Wrong address? <button type="button" onclick="window.backToLoginFromVerify()" style="background:none; border:none; color:var(--accent); cursor:pointer; padding:0; font-size:1em; font-weight:500; text-decoration:underline; box-shadow:none; width:auto; display:inline;">Back to sign in</button>
-                </p>
+                <p style="font-size:0.9em; line-height:1.6; margin-bottom:6px;">We sent a 6-digit code to <b id="verifyEmailShown" style="word-break:break-all;"></b>.</p>
+                <p style="font-size:0.8em; color:var(--subtext); line-height:1.5; margin-bottom:14px;">It expires in 10 minutes. If you don't see it, check your spam folder.</p>
+                <input type="text" id="verifyCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"
+                    style="text-align:center; font-size:1.7em; letter-spacing:0.45em; font-weight:700; padding-left:calc(16px + 0.45em);"
+                    onkeydown="if(event.key==='Enter') submitEmailCode()"
+                    oninput="this.value=this.value.replace(/[^0-9]/g,''); if(this.value.length===6) submitEmailCode();">
+                <button type="button" onclick="submitEmailCode()">Verify email</button>
+                <div style="display:flex; gap:10px; margin-top:12px;">
+                    <button type="button" id="verifyResendBtn" onclick="resendEmailCode()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Resend code</button>
+                    <button type="button" onclick="cancelEmailVerify()" style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); box-shadow:none;">Use a different email</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1684,9 +1528,6 @@ HTML_TEMPLATE = r"""
     </div>
 
     <script>
-        const GOOGLE_CLIENT_ID = {{ google_client_id | tojson }};
-        const APPLE_CLIENT_ID = {{ apple_client_id | tojson }};
-
         function safeParseJSON(value, fallback) {
             try {
                 const parsed = JSON.parse(value);
@@ -1706,7 +1547,6 @@ HTML_TEMPLATE = r"""
         let workspaceRefreshInterval = null;
         let approvalCheckInterval = null;
         let chatPollInterval = null;
-        let pendingOAuthData = null;
         let selectedProofFiles = {};
         let cachedTasks = [];
         let cachedEmployees = [];
@@ -1717,7 +1557,6 @@ HTML_TEMPLATE = r"""
         function lockUI() { uiLocked = true; }
         function unlockUI() { uiLocked = false; }
         function uiIsLocked() { return uiLocked; }
-        let googleInitialized = false;
 
         function hasPerm(permission) {
             return !!currentUser && (currentUser.role === "CEO" || (currentUser.permissions || []).includes(permission));
@@ -1772,21 +1611,6 @@ HTML_TEMPLATE = r"""
                 logout();
             }
             return res;
-        }
-
-        function initGoogleAuth() {
-            if (googleInitialized || typeof google === "undefined" || !GOOGLE_CLIENT_ID) return false;
-            try {
-                google.accounts.id.initialize({
-                    client_id: GOOGLE_CLIENT_ID,
-                    callback: handleGoogleOAuthCredential
-                });
-                googleInitialized = true;
-                return true;
-            } catch (err) {
-                console.log("Google init note:", err);
-                return false;
-            }
         }
 
         // Never leave the loading overlay stuck because of a failed request.
@@ -1873,35 +1697,9 @@ HTML_TEMPLATE = r"""
                     toggleCommandPalette();
                 } else if (e.key === "Escape") {
                     closeCommandPalette();
-                    closeSocialWorkspaceModal();
                     document.getElementById("feedbackModal").classList.remove("active");
                 }
             });
-
-            if (GOOGLE_CLIENT_ID) {
-                // The Google SDK loads with async defer, so it may not exist yet.
-                if (!initGoogleAuth()) {
-                    window.onGoogleLibraryLoad = initGoogleAuth;
-                    let googleTries = 0;
-                    const googleWait = setInterval(() => {
-                        googleTries += 1;
-                        if (initGoogleAuth() || googleTries > 40) clearInterval(googleWait);
-                    }, 250);
-                }
-            }
-
-            try {
-                if (typeof AppleID !== "undefined" && APPLE_CLIENT_ID) {
-                    AppleID.auth.init({
-                        clientId: APPLE_CLIENT_ID,
-                        scope: "name email",
-                        redirectURI: window.location.origin + "/app",
-                        usePopup: true
-                    });
-                }
-            } catch (e) {
-                console.log("AppleID init note:", e);
-            }
 
             if (currentUser && authToken) {
                 checkLoginState();
@@ -1910,6 +1708,8 @@ HTML_TEMPLATE = r"""
                 }
             } else if (currentUser && !authToken) {
                 logout();
+            } else if (pendingVerify && pendingVerify.email) {
+                showVerifyPanel(pendingVerify.email, 0);
             }
         });
 
@@ -2109,106 +1909,128 @@ HTML_TEMPLATE = r"""
             }
         };
 
-        window.triggerGoogleSignIn = function() {
-            if (!GOOGLE_CLIENT_ID) {
-                showToast("Google Client ID is missing. Set GOOGLE_CLIENT_ID in Railway variables.", "error");
+        // ---------- e-mail verification (6-digit code) ----------
+        let pendingVerify = null;
+        try { pendingVerify = safeParseJSON(sessionStorage.getItem("tasko_pending_verify"), null); } catch (err) { pendingVerify = null; }
+        let verifyBusy = false;
+        let verifyResendTimer = null;
+
+        function savePendingVerify() {
+            try {
+                if (pendingVerify) sessionStorage.setItem("tasko_pending_verify", JSON.stringify(pendingVerify));
+                else sessionStorage.removeItem("tasko_pending_verify");
+            } catch (err) { /* private browsing: the state just stays in memory */ }
+        }
+
+        function startVerifyCooldown(seconds) {
+            const btn = document.getElementById("verifyResendBtn");
+            clearInterval(verifyResendTimer);
+            let left = Math.max(0, Math.ceil(Number(seconds) || 0));
+            const paint = () => {
+                btn.disabled = left > 0;
+                btn.textContent = left > 0 ? "Resend code (" + left + "s)" : "Resend code";
+            };
+            paint();
+            if (left <= 0) return;
+            verifyResendTimer = setInterval(() => {
+                left -= 1;
+                paint();
+                if (left <= 0) clearInterval(verifyResendTimer);
+            }, 1000);
+        }
+
+        function showVerifyPanel(email, resendIn) {
+            ["loginForm", "signupForm", "loginCompanyModal", "signupCompanyModal"].forEach(id => document.getElementById(id).classList.add("hidden"));
+            document.getElementById("authContainer").style.display = "flex";
+            document.getElementById("waitingContainer").classList.add("hidden");
+            document.getElementById("verifyEmailShown").textContent = email;
+            const input = document.getElementById("verifyCodeInput");
+            input.value = "";
+            document.getElementById("verifyEmailPanel").classList.remove("hidden");
+            startVerifyCooldown(resendIn);
+            setTimeout(() => input.focus({ preventScroll: true }), 60);
+        }
+
+        function beginEmailVerification(result) {
+            pendingVerify = { email: result.email, verify_token: result.verify_token };
+            savePendingVerify();
+            showVerifyPanel(result.email, result.resend_in);
+            showToast("We sent a 6-digit code to " + result.email, "info");
+        }
+
+        window.submitEmailCode = async function() {
+            if (verifyBusy || !pendingVerify) return;
+            const code = document.getElementById("verifyCodeInput").value.trim();
+            if (!/^[0-9]{6}$/.test(code)) {
+                showToast("Enter the 6-digit code from your email.", "error");
                 return;
             }
-            if (typeof google !== "undefined") {
-                google.accounts.id.prompt((notification) => {
-                    if (notification.isNotDisplayed()) {
-                        showToast("Google sign-in popup was blocked by browser settings.", "error");
-                    }
+            verifyBusy = true;
+            showLoader("Verifying your email...");
+            try {
+                const res = await fetch("/api/email/verify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: pendingVerify.email, code: code, verify_token: pendingVerify.verify_token })
                 });
-            } else {
-                showToast("Google SDK is still loading.", "info");
+                const result = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    pendingVerify = null;
+                    savePendingVerify();
+                    clearInterval(verifyResendTimer);
+                    currentUser = result.user;
+                    authToken = result.token;
+                    localStorage.setItem("tasko_user", JSON.stringify(currentUser));
+                    localStorage.setItem("tasko_token", authToken);
+                    document.getElementById("verifyEmailPanel").classList.add("hidden");
+                    showToast("Email verified. Welcome to Tasko!");
+                    checkLoginState();
+                } else {
+                    showToast(result.error || "Verification failed.", "error");
+                    document.getElementById("verifyCodeInput").value = "";
+                    if (result.restart) cancelEmailVerify(true);
+                }
+            } catch (err) {
+                showToast("Network error. Please try again.", "error");
+            } finally {
+                verifyBusy = false;
+                hideLoader();
             }
         };
 
-        async function handleGoogleOAuthCredential(response) {
-            showLoader("Verifying Google OAuth token...");
+        window.resendEmailCode = async function() {
+            if (!pendingVerify) return;
+            showLoader("Sending a new code...");
             try {
-                const res = await fetch("/api/auth/google", {
+                const res = await fetch("/api/email/resend", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ credential: response.credential })
+                    body: JSON.stringify({ email: pendingVerify.email, verify_token: pendingVerify.verify_token })
                 });
-                const data = await res.json().catch(() => ({}));
+                const result = await res.json().catch(() => ({}));
                 if (res.ok) {
-                    pendingOAuthData = data;
-                    openSocialWorkspaceModal();
+                    startVerifyCooldown(result.resend_in || 60);
+                    document.getElementById("verifyCodeInput").value = "";
+                    document.getElementById("verifyCodeInput").focus({ preventScroll: true });
+                    showToast("A new code is on its way.", "info");
                 } else {
-                    showToast(data.error || "Google authentication failed", "error");
+                    if (result.retry_after) startVerifyCooldown(result.retry_after);
+                    showToast(result.error || "Could not send a new code.", "error");
+                    if (result.restart) cancelEmailVerify(true);
                 }
             } catch (err) {
                 showToast("Network error. Please try again.", "error");
             } finally {
                 hideLoader();
             }
-        }
-
-        window.triggerAppleSignIn = async function() {
-            try {
-                showLoader("Connecting to Apple ID...");
-                const data = await AppleID.auth.signIn();
-                const idToken = data.authorization.id_token;
-                const res = await fetch("/api/auth/apple", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ id_token: idToken })
-                });
-                const result = await res.json();
-                hideLoader();
-                if (res.ok) {
-                    pendingOAuthData = result;
-                    openSocialWorkspaceModal();
-                } else {
-                    showToast(result.error || "Apple authentication failed", "error");
-                }
-            } catch (error) {
-                hideLoader();
-                showToast("Apple Sign-In cancelled or unavailable.", "error");
-            }
         };
 
-        function openSocialWorkspaceModal() {
-            document.getElementById("socialModalTitle").innerText = `Link ${pendingOAuthData.provider} Account`;
-            document.getElementById("socialWorkspaceModal").classList.remove("hidden");
-        }
-
-        window.closeSocialWorkspaceModal = function() {
-            document.getElementById("socialWorkspaceModal").classList.add("hidden");
-        };
-
-        window.submitSocialWorkspaceId = async function() {
-            const company_id = document.getElementById("socialWorkspaceIdInput").value.trim();
-            if (!company_id) {
-                showToast("Workspace ID is required.", "error");
-                return;
-            }
-            closeSocialWorkspaceModal();
-            showLoader(`Authenticating with ${pendingOAuthData.provider}...`);
-
-            const res = await fetch("/api/social-login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    oauth_token: pendingOAuthData.oauth_token,
-                    company_id
-                })
-            });
-            hideLoader();
-            const result = await res.json();
-            if (res.ok) {
-                currentUser = result.user;
-                authToken = result.token;
-                localStorage.setItem("tasko_user", JSON.stringify(currentUser));
-                localStorage.setItem("tasko_token", authToken);
-                showToast(`Successfully authenticated with ${pendingOAuthData.provider}!`);
-                checkLoginState();
-            } else {
-                showToast(result.error, "error");
-            }
+        window.cancelEmailVerify = function() {
+            pendingVerify = null;
+            savePendingVerify();
+            clearInterval(verifyResendTimer);
+            document.getElementById("verifyEmailPanel").classList.add("hidden");
+            toggleAuth("signup");
         };
 
         window.updateRefreshRateSetting = function() {
@@ -2253,13 +2075,13 @@ HTML_TEMPLATE = r"""
             const signupForm = document.getElementById("signupForm");
             const loginCompanyModal = document.getElementById("loginCompanyModal");
             const signupCompanyModal = document.getElementById("signupCompanyModal");
-            const emailVerifyModal = document.getElementById("emailVerifyModal");
 
             if (!loginForm || !signupForm) return;
 
             loginCompanyModal.classList.add("hidden");
             signupCompanyModal.classList.add("hidden");
-            if (emailVerifyModal) emailVerifyModal.classList.add("hidden");
+            const verifyPanel = document.getElementById("verifyEmailPanel");
+            if (verifyPanel) verifyPanel.classList.add("hidden");
 
             if (formType === "signup") {
                 loginForm.classList.add("hidden");
@@ -2358,13 +2180,9 @@ HTML_TEMPLATE = r"""
                     body: JSON.stringify(signupData)
                 });
                 const result = await res.json().catch(() => ({}));
-                if (res.ok && result.verification_required) {
-                    showEmailVerify(result.email, result.email_sent ? "" : (result.message || ""), !!result.email_sent);
-                    if (result.email_sent) {
-                        showToast("We emailed you a verification code.");
-                    } else {
-                        showToast(result.message || "Could not send the verification code.", "error");
-                    }
+                if (res.ok && result.verify_required) {
+                    document.getElementById("signupCompanyModal").classList.add("hidden");
+                    beginEmailVerification(result);
                 } else if (res.ok) {
                     currentUser = result.user;
                     authToken = result.token;
@@ -2400,17 +2218,16 @@ HTML_TEMPLATE = r"""
                     body: JSON.stringify(data)
                 });
                 const result = await res.json().catch(() => ({}));
-                if (res.ok) {
+                if (res.ok && result.verify_required) {
+                    document.getElementById("loginCompanyModal").classList.add("hidden");
+                    beginEmailVerification(result);
+                } else if (res.ok) {
                     currentUser = result.user;
                     authToken = result.token;
                     localStorage.setItem("tasko_user", JSON.stringify(currentUser));
                     localStorage.setItem("tasko_token", authToken);
                     showToast("Logged in successfully!");
                     checkLoginState();
-                } else if (result.code === "email_unverified") {
-                    document.getElementById("loginCompanyModal").classList.add("hidden");
-                    showEmailVerify(result.email || data.email, result.email_sent ? "" : (result.message || ""), !!result.email_sent);
-                    showToast(result.message || "Please verify your email to continue.", result.email_sent ? "info" : "error");
                 } else {
                     showToast(result.error || "Sign in failed.", "error");
                 }
@@ -2419,112 +2236,6 @@ HTML_TEMPLATE = r"""
             } finally {
                 hideLoader();
             }
-        };
-
-        let pendingVerifyEmail = "";
-        let emailResendTimer = null;
-
-        function startEmailResendCooldown(seconds) {
-            const btn = document.getElementById("emailResendBtn");
-            if (!btn) return;
-            if (emailResendTimer) clearInterval(emailResendTimer);
-            let left = seconds;
-            btn.disabled = true;
-            const render = () => {
-                btn.innerText = left > 0 ? `Resend in ${left}s` : "Resend code";
-                btn.style.opacity = left > 0 ? "0.6" : "1";
-            };
-            render();
-            emailResendTimer = setInterval(() => {
-                left -= 1;
-                if (left <= 0) {
-                    clearInterval(emailResendTimer);
-                    emailResendTimer = null;
-                    btn.disabled = false;
-                }
-                render();
-            }, 1000);
-        }
-
-        window.showEmailVerify = function(email, note, emailSent) {
-            pendingVerifyEmail = email;
-            document.getElementById("loginForm").classList.add("hidden");
-            document.getElementById("loginCompanyModal").classList.add("hidden");
-            document.getElementById("signupForm").classList.add("hidden");
-            document.getElementById("signupCompanyModal").classList.add("hidden");
-            document.getElementById("emailVerifyModal").classList.remove("hidden");
-            document.getElementById("emailVerifySub").innerText =
-                `We sent a 6-digit code to ${email}. Enter it below to verify your address.`;
-            document.getElementById("emailVerifyNote").innerText = note || "";
-            const input = document.getElementById("emailVerifyCode");
-            input.value = "";
-            if (emailSent) startEmailResendCooldown(60);
-            setTimeout(() => input.focus(), 60);
-        };
-
-        window.verifyEmailCode = async function() {
-            const code = document.getElementById("emailVerifyCode").value.replace(/\D/g, "");
-            if (code.length !== 6) {
-                document.getElementById("emailVerifyNote").innerText = "Enter the 6-digit code from your email.";
-                return;
-            }
-            showLoader("Checking your code...");
-            try {
-                const res = await fetch("/api/auth/verify-email", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ email: pendingVerifyEmail, code })
-                });
-                const result = await res.json().catch(() => ({}));
-                if (res.ok) {
-                    currentUser = result.user;
-                    authToken = result.token;
-                    localStorage.setItem("tasko_user", JSON.stringify(currentUser));
-                    localStorage.setItem("tasko_token", authToken);
-                    showToast("Email verified. Welcome to Tasko!");
-                    checkLoginState();
-                } else {
-                    document.getElementById("emailVerifyNote").innerText = result.error || "Verification failed.";
-                    showToast(result.error || "Verification failed.", "error");
-                }
-            } catch (err) {
-                showToast("Network error. Please try again.", "error");
-            } finally {
-                hideLoader();
-            }
-        };
-
-        window.resendEmailCode = async function() {
-            if (!pendingVerifyEmail) return;
-            const btn = document.getElementById("emailResendBtn");
-            btn.disabled = true;
-            try {
-                const res = await fetch("/api/auth/resend-verification", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ email: pendingVerifyEmail })
-                });
-                const result = await res.json().catch(() => ({}));
-                const note = document.getElementById("emailVerifyNote");
-                if (res.ok) {
-                    note.innerText = "A new code is on its way.";
-                    showToast("Verification code resent.");
-                    startEmailResendCooldown(60);
-                } else {
-                    note.innerText = result.error || "Could not resend the code.";
-                    showToast(result.error || "Could not resend the code.", "error");
-                    btn.disabled = false;
-                }
-            } catch (err) {
-                showToast("Network error. Please try again.", "error");
-                btn.disabled = false;
-            }
-        };
-
-        window.backToLoginFromVerify = function() {
-            document.getElementById("emailVerifyModal").classList.add("hidden");
-            document.getElementById("loginForm").classList.remove("hidden");
-            pendingVerifyEmail = "";
         };
 
         window.logout = function() {
@@ -2544,8 +2255,6 @@ HTML_TEMPLATE = r"""
             if (passwordField) passwordField.value = "";
             const signupPasswordField = document.getElementById("suPassword");
             if (signupPasswordField) signupPasswordField.value = "";
-            if (emailResendTimer) { clearInterval(emailResendTimer); emailResendTimer = null; }
-            pendingVerifyEmail = "";
             document.getElementById("authContainer").style.display = "flex";
             document.getElementById("waitingContainer").classList.add("hidden");
             document.getElementById("dashboardContainer").classList.add("hidden");
@@ -3624,11 +3333,7 @@ def landing_page():
 
 @app.route("/app")
 def index():
-    return render_template_string(
-        HTML_TEMPLATE,
-        google_client_id=GOOGLE_CLIENT_ID,
-        apple_client_id=APPLE_CLIENT_ID
-    )
+    return render_template_string(HTML_TEMPLATE)
 
 
 _favicon_cache = {"bytes": None}
@@ -3654,72 +3359,7 @@ def favicon():
 
 
 # ---------------------------------------------------------------------------
-# OAuth endpoints (strict token verification)
-# ---------------------------------------------------------------------------
-@app.route("/api/auth/google", methods=["POST"])
-@rate_limit("oauth", 30, 600)
-def auth_google():
-    token = get_body().get("credential")
-    if not token or not GOOGLE_CLIENT_ID:
-        return jsonify({"error": "Google OAuth token or Client ID missing."}), 400
-    try:
-        idinfo = google_id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
-    except Exception:
-        return jsonify({"error": "Invalid Google token."}), 401
-
-    if not idinfo.get("email_verified"):
-        return jsonify({"error": "Your Google email address is not verified."}), 401
-
-    email = str(idinfo.get("email", "")).strip().lower()
-    if not EMAIL_RE.match(email):
-        return jsonify({"error": "Google did not provide a valid email."}), 401
-    name = clean_name(idinfo.get("name") or email.split("@")[0]) or "User"
-    return jsonify({"success": True, "provider": "Google", "oauth_token": create_oauth_token(email, name, "Google")})
-
-
-_apple_keys_cache = {"keys": None, "fetched_at": 0.0}
-
-
-def get_apple_keys(force=False):
-    if force or not _apple_keys_cache["keys"] or time.time() - _apple_keys_cache["fetched_at"] > 3600:
-        resp = requests.get(f"{APPLE_ISSUER}/auth/keys", timeout=5)
-        resp.raise_for_status()
-        _apple_keys_cache["keys"] = resp.json()["keys"]
-        _apple_keys_cache["fetched_at"] = time.time()
-    return _apple_keys_cache["keys"]
-
-
-@app.route("/api/auth/apple", methods=["POST"])
-@rate_limit("oauth", 30, 600)
-def auth_apple():
-    id_token = get_body().get("id_token")
-    if not id_token or not isinstance(id_token, str):
-        return jsonify({"error": "Apple ID token missing."}), 400
-    try:
-        header = jwt.get_unverified_header(id_token)
-        apple_key = next((k for k in get_apple_keys() if k["kid"] == header.get("kid")), None)
-        if not apple_key:  # Apple may have rotated its keys - refresh once and retry
-            apple_key = next((k for k in get_apple_keys(force=True) if k["kid"] == header.get("kid")), None)
-        if not apple_key:
-            return jsonify({"error": "Invalid Apple public key ID."}), 400
-        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(apple_key))
-        payload = jwt.decode(
-            id_token, public_key, algorithms=["RS256"],
-            audience=APPLE_CLIENT_ID, issuer=APPLE_ISSUER
-        )
-    except Exception:
-        return jsonify({"error": "Invalid Apple token."}), 401
-
-    email = str(payload.get("email") or "").strip().lower()
-    if not EMAIL_RE.match(email):
-        return jsonify({"error": "Apple did not share an email address. Please allow email sharing and try again."}), 400
-    raw_name = payload.get("name")
-    name = clean_name(raw_name if isinstance(raw_name, str) else email.split("@")[0]) or "Apple User"
-    return jsonify({"success": True, "provider": "Apple", "oauth_token": create_oauth_token(email, name, "Apple")})
-
-
-# ---------------------------------------------------------------------------
-# Standard & social auth
+# Account helpers
 # ---------------------------------------------------------------------------
 def _insert_or_reapply(conn, existing, fields):
     """Create a new user. If this email belonged to a KICKED user, reuse that row so they can re-apply."""
@@ -3735,6 +3375,104 @@ def _insert_or_reapply(conn, existing, fields):
             (fields["email"], fields["name"], fields["password_hash"], fields["role"], fields["status"], fields["stance"],
              fields["permissions"], fields["company_id"], fields["company_name"])
         )
+
+
+# ---------------------------------------------------------------------------
+# Sign up, e-mail verification and login
+# ---------------------------------------------------------------------------
+# How sign-up works:
+#   1. /api/signup checks the form and stores it as a *pending* sign-up (NOT a real account yet),
+#      then e-mails a 6-digit code.
+#   2. /api/email/verify checks the code. Only then is the real account created and a login token returned.
+# Because no account exists before the e-mail is proven, nobody can sign up with someone else's address.
+def _code_hash(email, code):
+    return hmac.new(SECRET_KEY.encode(), f"{email}:{code}".encode(), hashlib.sha256).hexdigest()
+
+
+def _token_hash(token):
+    return hashlib.sha256(str(token).encode()).hexdigest()
+
+
+def email_delivery_available():
+    return EMAIL_ENABLED or EMAIL_DEV_PRINT_CODES
+
+
+def send_verification_email(to_email, code):
+    """Send the 6-digit code through Brevo's web API. Returns True/False (never raises)."""
+    minutes = EMAIL_CODE_TTL // 60
+    if not EMAIL_ENABLED:
+        if EMAIL_DEV_PRINT_CODES:
+            app.logger.warning("DEV MODE: verification code for %s is %s", to_email, code)
+            return True
+        return False
+    subject = f"{code} is your Tasko verification code"
+    text = (f"Your Tasko verification code is {code}.\n\n"
+            f"It expires in {minutes} minutes. If you didn't try to sign up, you can safely ignore this email.")
+    html_body = (
+        '<div style="font-family:Arial,Helvetica,sans-serif;max-width:420px;margin:0 auto;padding:28px;'
+        'background:#0f1523;border-radius:16px;color:#ededef;">'
+        '<h2 style="margin:0 0 8px 0;font-size:20px;">Verify your email</h2>'
+        '<p style="margin:0 0 20px 0;color:#8a95a5;font-size:14px;line-height:1.5;">'
+        'Enter this code in Tasko to finish creating your account.</p>'
+        f'<div style="font-size:34px;letter-spacing:10px;font-weight:700;text-align:center;padding:16px;'
+        f'background:#090d16;border:1px solid #1a2234;border-radius:12px;color:#ffffff;">{code}</div>'
+        f'<p style="margin:20px 0 0 0;color:#8a95a5;font-size:12px;line-height:1.5;">'
+        f"This code expires in {minutes} minutes. If you didn't try to sign up, you can ignore this email.</p>"
+        '</div>'
+    )
+    try:
+        resp = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"api-key": BREVO_API_KEY, "accept": "application/json", "content-type": "application/json"},
+            json={
+                "sender": {"name": EMAIL_FROM_NAME, "email": EMAIL_FROM},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "htmlContent": html_body,
+                "textContent": text,
+            },
+            timeout=10,
+        )
+    except requests.RequestException:
+        app.logger.exception("Brevo request failed")
+        return False
+    if resp.status_code in (200, 201, 202):
+        return True
+    app.logger.warning("Brevo rejected the email: HTTP %s %s", resp.status_code, resp.text[:300])
+    return False
+
+
+def _email_limit_error(conn, email):
+    """Returns (message, http_status) if we must not send another e-mail right now, else None."""
+    now_ts = int(time.time())
+    sent_last_hour = conn.execute(
+        "SELECT COUNT(*) FROM email_log WHERE email = ? AND ts >= ?", (email, now_ts - 3600)
+    ).fetchone()[0]
+    if sent_last_hour >= EMAIL_HOURLY_LIMIT:
+        return "Too many codes were requested for this email. Please try again in an hour.", 429
+    sent_today = conn.execute("SELECT COUNT(*) FROM email_log WHERE ts >= ?", (now_ts - 86400,)).fetchone()[0]
+    if sent_today >= EMAIL_DAILY_LIMIT:
+        return "Email verification is temporarily unavailable. Please try again later.", 503
+    return None
+
+
+def _new_code():
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _commit_and_send(conn, email, code, log_id):
+    """Save everything first (so no database lock is held while we talk to the e-mail service),
+    then send. If sending fails, the attempt is not counted against the person's hourly limit."""
+    conn.commit()
+    if send_verification_email(email, code):
+        return True
+    conn.execute("DELETE FROM email_log WHERE id = ?", (log_id,))
+    conn.commit()
+    return False
+
+
+EMAIL_SEND_FAILED = ({"error": "We couldn't send the verification email. Please check the address and try again in a moment."}, 502)
+EMAIL_NOT_SET_UP = ({"error": "Email verification isn't set up yet. Please contact the site owner."}, 503)
 
 
 @app.route("/api/signup", methods=["POST"])
@@ -3754,27 +3492,20 @@ def signup():
         return jsonify({"error": f"Password must be at least {MIN_PASSWORD_LENGTH} characters long."}), 400
     if len(password) > 128:
         return jsonify({"error": "Password is too long (maximum 128 characters)."}), 400
+    if not email_delivery_available():
+        return jsonify(EMAIL_NOT_SET_UP[0]), EMAIL_NOT_SET_UP[1]
 
     try:
         with get_db() as conn:
-            existing = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            existing = conn.execute("SELECT status FROM users WHERE email = ?", (email,)).fetchone()
             if existing is not None and existing["status"] != "Kicked":
                 return jsonify({"error": "Email already registered."}), 409
-
-            pw_hash = generate_password_hash(password)
 
             if role == "CEO":
                 company_name = clean_text(data.get("company_name"), 80)
                 if not company_name:
                     return jsonify({"error": "Company name cannot be blank when creating a workspace."}), 400
-                company_id = new_company_id(conn)
-                fields = {
-                    "email": email, "name": name, "password_hash": pw_hash, "role": "CEO", "status": "Approved",
-                    "stance": "CEO", "permissions": json.dumps(ALL_PERMISSIONS),
-                    "company_id": company_id, "company_name": company_name
-                }
-                _insert_or_reapply(conn, existing, fields)
-                log_history(conn, company_id, f"Company '{company_name}' created by CEO {name}")
+                company_id = ""  # created only after the email is verified
             else:
                 company_id = clean_text(data.get("company_id"), 20)
                 if not company_id:
@@ -3782,33 +3513,137 @@ def signup():
                 ceo_row = conn.execute("SELECT company_name FROM users WHERE company_id = ? AND role = 'CEO'", (company_id,)).fetchone()
                 if not ceo_row:
                     return jsonify({"error": "Invalid Workspace ID. Company does not exist."}), 404
+                company_name = ceo_row["company_name"]
+
+            limit_error = _email_limit_error(conn, email)
+            if limit_error:
+                return jsonify({"error": limit_error[0]}), limit_error[1]
+
+            now_ts = int(time.time())
+            conn.execute("DELETE FROM pending_signups WHERE created_at < ?", (now_ts - 86400,))
+            code = _new_code()
+            verify_token = secrets.token_urlsafe(24)
+            conn.execute(
+                "INSERT OR REPLACE INTO pending_signups "
+                "(email, name, password_hash, role, company_id, company_name, token_hash, code_hash, expires_at, attempts, last_sent, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+                (email, name, generate_password_hash(password), role, company_id, company_name,
+                 _token_hash(verify_token), _code_hash(email, code), now_ts + EMAIL_CODE_TTL, now_ts, now_ts)
+            )
+            log_id = conn.execute("INSERT INTO email_log (email, ts) VALUES (?, ?)", (email, now_ts)).lastrowid
+            if not _commit_and_send(conn, email, code, log_id):
+                return jsonify(EMAIL_SEND_FAILED[0]), EMAIL_SEND_FAILED[1]
+            return jsonify({
+                "success": True, "verify_required": True, "email": email,
+                "verify_token": verify_token, "resend_in": EMAIL_RESEND_COOLDOWN
+            })
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Email already registered."}), 409
+
+
+@app.route("/api/email/verify", methods=["POST"])
+@rate_limit("email_verify", 30, 600)
+def email_verify():
+    data = get_body()
+    email = clean_text(data.get("email"), 254).lower()
+    code = clean_text(data.get("code"), 12)
+    token = data.get("verify_token") if isinstance(data.get("verify_token"), str) else ""
+    if not EMAIL_RE.match(email) or not token:
+        return jsonify({"error": "Something went wrong. Please sign up again.", "restart": True}), 400
+    if not re.fullmatch(r"\d{6}", code):
+        return jsonify({"error": "Please enter the 6-digit code from your email."}), 400
+
+    now_ts = int(time.time())
+    try:
+        with get_db() as conn:
+            pend = conn.execute("SELECT * FROM pending_signups WHERE email = ?", (email,)).fetchone()
+            if pend is None:
+                return jsonify({"error": "We couldn't find this sign-up. Please sign up again.", "restart": True}), 404
+            if not hmac.compare_digest(pend["token_hash"], _token_hash(token)):
+                return jsonify({"error": "This sign-up was replaced or started somewhere else. Please sign up again.", "restart": True}), 403
+            if now_ts > pend["expires_at"]:
+                return jsonify({"error": "That code has expired. Tap \"Resend code\" to get a new one."}), 400
+            if pend["attempts"] >= EMAIL_CODE_MAX_ATTEMPTS:
+                return jsonify({"error": "Too many wrong attempts. Tap \"Resend code\" to get a new one."}), 429
+            if not hmac.compare_digest(pend["code_hash"], _code_hash(email, code)):
+                conn.execute("UPDATE pending_signups SET attempts = attempts + 1 WHERE email = ?", (email,))
+                left = EMAIL_CODE_MAX_ATTEMPTS - (pend["attempts"] + 1)
+                if left <= 0:
+                    return jsonify({"error": "Incorrect code. Tap \"Resend code\" to get a new one."}), 400
+                return jsonify({"error": f"Incorrect code. {left} {'try' if left == 1 else 'tries'} left."}), 400
+
+            # The email is proven. Now create the real account.
+            existing = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            if existing is not None and existing["status"] != "Kicked":
+                conn.execute("DELETE FROM pending_signups WHERE email = ?", (email,))
+                return jsonify({"error": "Email already registered. Please sign in instead."}), 409
+
+            if pend["role"] == "CEO":
+                company_id = new_company_id(conn)
+                company_name = pend["company_name"]
                 fields = {
-                    "email": email, "name": make_unique_name(conn, company_id, name, email), "password_hash": pw_hash,
-                    "role": "Employee", "status": "Pending", "stance": "", "permissions": "[]",
+                    "email": email, "name": pend["name"], "password_hash": pend["password_hash"], "role": "CEO",
+                    "status": "Approved", "stance": "CEO", "permissions": json.dumps(ALL_PERMISSIONS),
+                    "company_id": company_id, "company_name": company_name
+                }
+                _insert_or_reapply(conn, existing, fields)
+                log_history(conn, company_id, f"Company '{company_name}' created by CEO {pend['name']}")
+            else:
+                company_id = pend["company_id"]
+                ceo_row = conn.execute("SELECT company_name FROM users WHERE company_id = ? AND role = 'CEO'", (company_id,)).fetchone()
+                if not ceo_row:
+                    conn.execute("DELETE FROM pending_signups WHERE email = ?", (email,))
+                    return jsonify({"error": "That workspace no longer exists.", "restart": True}), 404
+                fields = {
+                    "email": email, "name": make_unique_name(conn, company_id, pend["name"], email),
+                    "password_hash": pend["password_hash"], "role": "Employee", "status": "Pending",
+                    "stance": "", "permissions": "[]",
                     "company_id": company_id, "company_name": ceo_row["company_name"]
                 }
                 _insert_or_reapply(conn, existing, fields)
 
-            # Email/password accounts start unverified when enforcement is on. A re-applying
-            # (kicked) user keeps whatever verification state their row already had.
-            if not EMAIL_VERIFICATION_ENABLED:
-                conn.execute("UPDATE users SET email_verified = 1 WHERE email = ?", (email,))
-
+            conn.execute("DELETE FROM pending_signups WHERE email = ?", (email,))
             user_row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
             user_dict = serialize_user(user_row)
-
-        if EMAIL_VERIFICATION_ENABLED and not user_dict["email_verified"]:
-            sent, message = issue_email_code(user_dict["email"], user_dict["name"])
-            return jsonify({
-                "success": True,
-                "verification_required": True,
-                "email": user_dict["email"],
-                "email_sent": sent,
-                "message": message or "We emailed a 6-digit code to your address.",
-            })
-        return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
+            return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
     except sqlite3.IntegrityError:
-        return jsonify({"error": "Email already registered."}), 409
+        return jsonify({"error": "Email already registered. Please sign in instead."}), 409
+
+
+@app.route("/api/email/resend", methods=["POST"])
+@rate_limit("email_resend", 20, 3600)
+def email_resend():
+    data = get_body()
+    email = clean_text(data.get("email"), 254).lower()
+    token = data.get("verify_token") if isinstance(data.get("verify_token"), str) else ""
+    if not EMAIL_RE.match(email) or not token:
+        return jsonify({"error": "Something went wrong. Please sign up again.", "restart": True}), 400
+    if not email_delivery_available():
+        return jsonify(EMAIL_NOT_SET_UP[0]), EMAIL_NOT_SET_UP[1]
+
+    now_ts = int(time.time())
+    with get_db() as conn:
+        pend = conn.execute("SELECT * FROM pending_signups WHERE email = ?", (email,)).fetchone()
+        if pend is None:
+            return jsonify({"error": "We couldn't find this sign-up. Please sign up again.", "restart": True}), 404
+        if not hmac.compare_digest(pend["token_hash"], _token_hash(token)):
+            return jsonify({"error": "This sign-up was replaced or started somewhere else. Please sign up again.", "restart": True}), 403
+        wait = EMAIL_RESEND_COOLDOWN - (now_ts - (pend["last_sent"] or 0))
+        if wait > 0:
+            return jsonify({"error": f"Please wait {wait} seconds before asking for another code.", "retry_after": wait}), 429
+        limit_error = _email_limit_error(conn, email)
+        if limit_error:
+            return jsonify({"error": limit_error[0]}), limit_error[1]
+
+        code = _new_code()
+        conn.execute(
+            "UPDATE pending_signups SET code_hash = ?, expires_at = ?, attempts = 0, last_sent = ? WHERE email = ?",
+            (_code_hash(email, code), now_ts + EMAIL_CODE_TTL, now_ts, email)
+        )
+        log_id = conn.execute("INSERT INTO email_log (email, ts) VALUES (?, ?)", (email, now_ts)).lastrowid
+        if not _commit_and_send(conn, email, code, log_id):
+            return jsonify(EMAIL_SEND_FAILED[0]), EMAIL_SEND_FAILED[1]
+        return jsonify({"success": True, "resend_in": EMAIL_RESEND_COOLDOWN})
 
 
 # Used so a wrong email takes about as long as a wrong password (prevents guessing which emails exist).
@@ -3826,9 +3661,39 @@ def login():
     if not email or not password or not company_id:
         return jsonify({"error": "Email, password, and Workspace ID are required."}), 400
 
-    verification_needed = False
     with get_db() as conn:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+
+        # Closed the tab before entering the code? Logging in with the password they just chose
+        # takes them back to the verification step (with a fresh code if the old one has timed out).
+        pend = None
+        if row is None or row["status"] == "Kicked" or not row["password_hash"]:
+            pend = conn.execute("SELECT * FROM pending_signups WHERE email = ?", (email,)).fetchone()
+        if pend is not None and check_password_hash(pend["password_hash"], password):
+            if not email_delivery_available():
+                return jsonify(EMAIL_NOT_SET_UP[0]), EMAIL_NOT_SET_UP[1]
+            now_ts = int(time.time())
+            new_token = secrets.token_urlsafe(24)
+            wait = EMAIL_RESEND_COOLDOWN - (now_ts - (pend["last_sent"] or 0))
+            if wait > 0 and now_ts <= pend["expires_at"]:
+                # A code was sent a moment ago and is still valid - just reconnect to it.
+                conn.execute("UPDATE pending_signups SET token_hash = ? WHERE email = ?", (_token_hash(new_token), email))
+                return jsonify({"success": True, "verify_required": True, "email": email,
+                                "verify_token": new_token, "resend_in": wait})
+            limit_error = _email_limit_error(conn, email)
+            if limit_error:
+                return jsonify({"error": limit_error[0]}), limit_error[1]
+            code = _new_code()
+            conn.execute(
+                "UPDATE pending_signups SET token_hash = ?, code_hash = ?, expires_at = ?, attempts = 0, last_sent = ? WHERE email = ?",
+                (_token_hash(new_token), _code_hash(email, code), now_ts + EMAIL_CODE_TTL, now_ts, email)
+            )
+            log_id = conn.execute("INSERT INTO email_log (email, ts) VALUES (?, ?)", (email, now_ts)).lastrowid
+            if not _commit_and_send(conn, email, code, log_id):
+                return jsonify(EMAIL_SEND_FAILED[0]), EMAIL_SEND_FAILED[1]
+            return jsonify({"success": True, "verify_required": True, "email": email,
+                            "verify_token": new_token, "resend_in": EMAIL_RESEND_COOLDOWN})
+
         if not row or not row["password_hash"]:
             check_password_hash(_DUMMY_HASH, password)
             return jsonify({"error": "Invalid email or password."}), 401
@@ -3839,147 +3704,8 @@ def login():
         if row["status"] == "Kicked":
             return jsonify({"error": "You were removed from this workspace. Sign up again to re-apply."}), 403
 
-        if EMAIL_VERIFICATION_ENABLED and not row["email_verified"]:
-            verification_needed = True
-            display_email = row["email"]
-            display_name = row["name"]
-        else:
-            user_dict = serialize_user(row)
-
-    if verification_needed:
-        # Send outside the database connection so a slow mail API never holds a lock.
-        sent, message = issue_email_code(display_email, display_name)
-        return jsonify({
-            "error": "Please verify your email address to finish signing in.",
-            "code": "email_unverified",
-            "email": display_email,
-            "email_sent": sent,
-            "message": message or "We emailed you a new 6-digit code.",
-        }), 403
-
-    return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
-
-
-@app.route("/api/auth/resend-verification", methods=["POST"])
-@rate_limit("verify_resend", 20, 3600)
-def resend_verification():
-    if not EMAIL_VERIFICATION_ENABLED:
-        return jsonify({"error": "Email verification is not configured yet."}), 503
-
-    data = get_body()
-    email = clean_text(data.get("email"), 254).lower()
-    if not EMAIL_RE.match(email):
-        return jsonify({"error": "Please enter a valid email address."}), 400
-
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT name, email_verified FROM users WHERE email = ?", (email,)
-        ).fetchone()
-
-    # Never reveal whether an address is registered; only report delivery problems for
-    # accounts that genuinely still need a code.
-    if row is not None and not row["email_verified"]:
-        sent, message = issue_email_code(email, row["name"])
-        if not sent:
-            status = 429 if ("wait" in message.lower() or "too many" in message.lower()) else 502
-            return jsonify({"error": message}), status
-
-    return jsonify({
-        "success": True,
-        "message": "If that account still needs verification, a new code is on its way.",
-    })
-
-
-@app.route("/api/auth/verify-email", methods=["POST"])
-@rate_limit("verify_email", 30, 600)
-def verify_email():
-    data = get_body()
-    email = clean_text(data.get("email"), 254).lower()
-    code = clean_text(data.get("code"), 12)
-
-    if not EMAIL_RE.match(email) or not code:
-        return jsonify({"error": "Enter the 6-digit code from your email."}), 400
-
-    now = int(time.time())
-    with get_db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-        if not row:
-            return jsonify({"error": "That code is invalid or has expired."}), 400
-        if row["email_verified"]:
-            user_dict = serialize_user(row)
-            return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
-        if not row["email_code_hash"] or int(row["email_code_expires"] or 0) < now:
-            return jsonify({"error": "That code has expired. Please request a new one."}), 400
-        if int(row["email_code_attempts"] or 0) >= EMAIL_CODE_MAX_ATTEMPTS:
-            return jsonify({"error": "Too many incorrect attempts. Please request a new code."}), 429
-        if not hmac.compare_digest(row["email_code_hash"], hash_email_code(code)):
-            conn.execute(
-                "UPDATE users SET email_code_attempts = email_code_attempts + 1 WHERE email = ?",
-                (email,),
-            )
-            return jsonify({"error": "That code is incorrect. Please check and try again."}), 400
-
-        conn.execute(
-            "UPDATE users SET email_verified = 1, email_code_hash = '', email_code_expires = 0, "
-            "email_code_attempts = 0 WHERE email = ?",
-            (email,),
-        )
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         user_dict = serialize_user(row)
-
-    return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
-
-
-@app.route("/api/social-login", methods=["POST"])
-@rate_limit("login", 30, 600)
-def social_login():
-    data = get_body()
-    oauth_token = data.get("oauth_token")
-    company_id = clean_text(data.get("company_id"), 20)
-
-    if not oauth_token or not isinstance(oauth_token, str) or not company_id:
-        return jsonify({"error": "OAuth token and Workspace ID are required."}), 400
-
-    try:
-        verified = jwt.decode(oauth_token, SECRET_KEY, algorithms=["HS256"], options={"require": ["exp"]})
-    except Exception:
-        return jsonify({"error": "OAuth verification expired or invalid."}), 401
-    if verified.get("type") != "oauth":
-        return jsonify({"error": "OAuth verification expired or invalid."}), 401
-
-    email = str(verified.get("email", "")).strip().lower()
-    name = clean_name(verified.get("name")) or email.split("@")[0]
-    if not EMAIL_RE.match(email):
-        return jsonify({"error": "OAuth verification expired or invalid."}), 401
-
-    try:
-        with get_db() as conn:
-            row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-
-            if row is None or row["status"] == "Kicked":
-                ceo_row = conn.execute("SELECT company_name FROM users WHERE company_id = ? AND role = 'CEO'", (company_id,)).fetchone()
-                if not ceo_row:
-                    return jsonify({"error": "Invalid Workspace ID. Company does not exist."}), 404
-                fields = {
-                    "email": email, "name": make_unique_name(conn, company_id, name, email), "password_hash": "",
-                    "role": "Employee", "status": "Pending", "stance": "", "permissions": "[]",
-                    "company_id": company_id, "company_name": ceo_row["company_name"]
-                }
-                _insert_or_reapply(conn, row, fields)
-                row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-
-            if str(row["company_id"]) != company_id:
-                return jsonify({"error": "Invalid Workspace ID for this account."}), 401
-
-            # Google and Apple only issue tokens for addresses they have already verified.
-            if not row["email_verified"]:
-                conn.execute("UPDATE users SET email_verified = 1 WHERE email = ?", (email,))
-                row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-
-            user_dict = serialize_user(row)
-            return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
-    except sqlite3.IntegrityError:
-        return jsonify({"error": "Could not create your account. Please try again."}), 409
+        return jsonify({"success": True, "user": user_dict, "token": create_token(user_dict)})
 
 
 # ---------------------------------------------------------------------------

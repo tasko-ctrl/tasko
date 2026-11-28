@@ -15,6 +15,8 @@ os.environ.pop("GEMINI_API_KEY", None)
 os.environ.pop("TWILIO_ACCOUNT_SID", None)
 os.environ.pop("TWILIO_AUTH_TOKEN", None)
 os.environ.pop("TWILIO_VERIFY_SERVICE_SID", None)
+os.environ.pop("BREVO_API_KEY", None)
+os.environ.pop("EMAIL_FROM", None)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -26,31 +28,51 @@ import Tasko  # noqa: E402
 @pytest.fixture()
 def client():
     Tasko.app.config.update(TESTING=True)
-    # A developer .env may configure Brevo; tests opt in to verification per-test.
-    Tasko.EMAIL_VERIFICATION_ENABLED = False
     with Tasko.app.test_client() as test_client:
         yield test_client
 
 
+# Every test "receives" its verification e-mails here instead of Brevo: SENT[email] = last code.
+SENT = {}
+
+
 @pytest.fixture(autouse=True)
-def _clear_rate_limits():
-    """Keep tests independent: the in-memory limiter is shared across the session."""
-    with Tasko._rate_lock:
-        Tasko._rate_hits.clear()
-    yield
+def fake_email(monkeypatch):
+    SENT.clear()
+    Tasko._rate_hits.clear()  # the sign-up rate limit would otherwise trip after ~15 sign-ups
+    monkeypatch.setattr(Tasko, "EMAIL_ENABLED", True)
+
+    def fake_send(email, code):
+        SENT[email] = code
+        return True
+
+    monkeypatch.setattr(Tasko, "send_verification_email", fake_send)
 
 
-def signup(client, name, email, role="CEO", company_name="Acme", company_id=""):
-    response = client.post("/api/signup", json={
+def start_signup(client, name, email, role="CEO", company_name="Acme", company_id="", password="correct-horse-battery"):
+    return client.post("/api/signup", json={
         "name": name,
         "email": email,
-        "password": "correct-horse-battery",
+        "password": password,
         "role": role,
         "company_name": company_name,
         "company_id": company_id,
     })
+
+
+def verify_email(client, email, code, token):
+    return client.post("/api/email/verify", json={"email": email, "code": code, "verify_token": token})
+
+
+def signup(client, name, email, role="CEO", company_name="Acme", company_id=""):
+    """Full sign-up: fill the form, then type the 6-digit code that was e-mailed."""
+    response = start_signup(client, name, email, role, company_name, company_id)
     assert response.status_code == 200, response.get_json()
-    return response.get_json()
+    started = response.get_json()
+    assert started["verify_required"] is True
+    verified = verify_email(client, email, SENT[email.lower()], started["verify_token"])
+    assert verified.status_code == 200, verified.get_json()
+    return verified.get_json()
 
 
 def auth(token):
@@ -422,86 +444,166 @@ def test_retired_models_return_a_clear_error(client, monkeypatch):
     assert "GEMINI_MODEL" in response.get_json()["error"]
 
 
-def _enable_email_verification(monkeypatch):
-    import re
-
-    sent = []
-
-    def fake_send(email, name, code):
-        sent.append({"email": email, "name": name, "code": code})
-        return True, ""
-
-    monkeypatch.setattr(Tasko, "EMAIL_VERIFICATION_ENABLED", True)
-    monkeypatch.setattr(Tasko, "send_verification_email", fake_send)
-    return sent, re
-
-
-def test_email_verification_blocks_login_until_code_is_entered(client, monkeypatch):
-    sent, re = _enable_email_verification(monkeypatch)
-
-    created = client.post("/api/signup", json={
-        "name": "Nina", "email": "nina@verify.test", "password": "correct-horse-battery",
-        "role": "CEO", "company_name": "Verify Co",
-    })
-    assert created.status_code == 200, created.get_json()
-    body = created.get_json()
-    assert body["verification_required"] is True
-    assert body["email_sent"] is True
-    assert "token" not in body
-    assert len(sent) == 1
-    code = sent[0]["code"]
-    assert re.fullmatch(r"\d{6}", code)
-
+# ---------------------------------------------------------------------------
+# E-mail verification
+# ---------------------------------------------------------------------------
+def _user_exists(email):
     with Tasko.get_db() as conn:
-        row = conn.execute("SELECT company_id, email_verified FROM users WHERE email = ?",
-                           ("nina@verify.test",)).fetchone()
-    assert row["email_verified"] == 0
-    company_id = str(row["company_id"])
-
-    credentials = {"email": "nina@verify.test", "password": "correct-horse-battery",
-                   "company_id": company_id}
-    blocked = client.post("/api/login", json=credentials)
-    assert blocked.status_code == 403
-    assert blocked.get_json()["code"] == "email_unverified"
-    # The code from signup is still inside its 60 second resend window.
-    assert len(sent) == 1
-
-    wrong_code = "000000" if code != "000000" else "111111"
-    wrong = client.post("/api/auth/verify-email", json={"email": "nina@verify.test", "code": wrong_code})
-    assert wrong.status_code == 400
-
-    verified = client.post("/api/auth/verify-email", json={"email": "nina@verify.test", "code": code})
-    assert verified.status_code == 200, verified.get_json()
-    assert verified.get_json()["user"]["email_verified"] is True
-    assert verified.get_json()["token"]
-
-    assert client.post("/api/login", json=credentials).status_code == 200
+        return conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone() is not None
 
 
-def test_expired_email_code_is_rejected(client, monkeypatch):
-    import time
+def test_signup_creates_no_account_until_the_code_is_entered(client):
+    started = start_signup(client, "Zed", "zed@verify.test", company_name="Verify Co").get_json()
+    assert started["verify_required"] is True
+    assert "token" not in started and "user" not in started
+    assert len(SENT["zed@verify.test"]) == 6
+    assert not _user_exists("zed@verify.test")
 
-    sent, _ = _enable_email_verification(monkeypatch)
-    client.post("/api/signup", json={
-        "name": "Omar", "email": "omar@verify.test", "password": "correct-horse-battery",
-        "role": "CEO", "company_name": "Expiry Co",
-    })
+    # Nobody can log in (or use the API) before verifying.
+    bad_login = client.post("/api/login", json={
+        "email": "zed@verify.test", "password": "nope-nope-nope", "company_id": "1234567890"})
+    assert bad_login.status_code == 401
+
+    done = verify_email(client, "zed@verify.test", SENT["zed@verify.test"], started["verify_token"])
+    assert done.status_code == 200
+    assert done.get_json()["user"]["role"] == "CEO"
+    assert _user_exists("zed@verify.test")
+
+
+def test_codes_are_stored_hashed(client):
+    started = start_signup(client, "Hash", "hash@verify.test", company_name="H").get_json()
+    code = SENT["hash@verify.test"]
     with Tasko.get_db() as conn:
-        conn.execute("UPDATE users SET email_code_expires = ? WHERE email = ?",
-                     (int(time.time()) - 1, "omar@verify.test"))
-
-    response = client.post("/api/auth/verify-email",
-                           json={"email": "omar@verify.test", "code": sent[0]["code"]})
-    assert response.status_code == 400
-    assert "expired" in response.get_json()["error"].lower()
+        row = conn.execute("SELECT * FROM pending_signups WHERE email = ?", ("hash@verify.test",)).fetchone()
+    assert code not in row["code_hash"] and code not in row["token_hash"]
+    assert started["verify_token"] not in row["token_hash"]
+    assert "correct-horse-battery" not in row["password_hash"]
 
 
-def test_social_login_counts_as_verified_email(client):
-    ceo = signup(client, "Olga", "olga@social.test", company_name="Social Co")
+def test_wrong_codes_lock_after_five_tries_and_resend_unlocks(client):
+    started = start_signup(client, "Lou", "lou@verify.test", company_name="Lou Co").get_json()
+    real = SENT["lou@verify.test"]
+    wrong = "000000" if real != "000000" else "111111"
+    token = started["verify_token"]
+
+    first = verify_email(client, "lou@verify.test", wrong, token)
+    assert first.status_code == 400 and "4 tries left" in first.get_json()["error"]
+    for _ in range(4):
+        verify_email(client, "lou@verify.test", wrong, token)
+    # Even the CORRECT code no longer works once the tries are used up.
+    locked = verify_email(client, "lou@verify.test", real, token)
+    assert locked.status_code == 429
+    assert not _user_exists("lou@verify.test")
+
+    with Tasko.get_db() as conn:  # skip the 60 second wait
+        conn.execute("UPDATE pending_signups SET last_sent = last_sent - 120 WHERE email = ?", ("lou@verify.test",))
+    resent = client.post("/api/email/resend", json={"email": "lou@verify.test", "verify_token": token})
+    assert resent.status_code == 200, resent.get_json()
+    assert verify_email(client, "lou@verify.test", SENT["lou@verify.test"], token).status_code == 200
+
+
+def test_expired_code_is_rejected(client):
+    started = start_signup(client, "Exp", "exp@verify.test", company_name="Exp Co").get_json()
+    with Tasko.get_db() as conn:
+        conn.execute("UPDATE pending_signups SET expires_at = 1 WHERE email = ?", ("exp@verify.test",))
+    response = verify_email(client, "exp@verify.test", SENT["exp@verify.test"], started["verify_token"])
+    assert response.status_code == 400 and "expired" in response.get_json()["error"]
+    assert not _user_exists("exp@verify.test")
+
+
+def test_someone_else_cannot_hijack_a_pending_signup(client):
+    victim = start_signup(client, "Vic", "vic@verify.test", company_name="Vic Co").get_json()
+    # An attacker re-submits the form for the victim's address with their own password.
+    attacker = start_signup(client, "Evil", "vic@verify.test", company_name="Evil Co", password="attacker-password-1").get_json()
+    code = SENT["vic@verify.test"]  # the (new) code goes to the victim's inbox only
+    # The victim's old browser token no longer matches -> they are told to start over.
+    blocked = verify_email(client, "vic@verify.test", code, victim["verify_token"])
+    assert blocked.status_code == 403 and blocked.get_json()["restart"] is True
+    assert not _user_exists("vic@verify.test")
+    # The attacker has the token but never sees the code.
+    guess = verify_email(client, "vic@verify.test", "123456" if code != "123456" else "654321", attacker["verify_token"])
+    assert guess.status_code == 400
+    assert not _user_exists("vic@verify.test")
+
+
+def test_resend_has_a_cooldown_and_an_hourly_cap(client):
+    started = start_signup(client, "Rex", "rex@verify.test", company_name="Rex Co").get_json()
+    token = started["verify_token"]
+    too_soon = client.post("/api/email/resend", json={"email": "rex@verify.test", "verify_token": token})
+    assert too_soon.status_code == 429 and too_soon.get_json()["retry_after"] > 0
+
+    for _ in range(Tasko.EMAIL_HOURLY_LIMIT - 1):
+        with Tasko.get_db() as conn:
+            conn.execute("UPDATE pending_signups SET last_sent = last_sent - 120 WHERE email = ?", ("rex@verify.test",))
+        assert client.post("/api/email/resend", json={"email": "rex@verify.test", "verify_token": token}).status_code == 200
+    with Tasko.get_db() as conn:
+        conn.execute("UPDATE pending_signups SET last_sent = last_sent - 120 WHERE email = ?", ("rex@verify.test",))
+    capped = client.post("/api/email/resend", json={"email": "rex@verify.test", "verify_token": token})
+    assert capped.status_code == 429 and "hour" in capped.get_json()["error"]
+
+
+def test_failed_email_send_does_not_use_up_the_hourly_limit(client, monkeypatch):
+    monkeypatch.setattr(Tasko, "send_verification_email", lambda email, code: False)
+    for _ in range(Tasko.EMAIL_HOURLY_LIMIT + 2):
+        response = start_signup(client, "Net", "net@verify.test", company_name="Net Co")
+        assert response.status_code == 502
+
+
+def test_logging_in_with_an_unverified_signup_resumes_verification(client):
+    ceo = signup(client, "Ann", "ann@verify.test", company_name="Ann Co")
     company_id = str(ceo["user"]["company_id"])
-    oauth_token = Tasko.create_oauth_token("olga.new@social.test", "Olga New", "Google")
+    started = start_signup(client, "Bea", "bea@verify.test", role="Employee", company_id=company_id).get_json()
+    first_code = SENT["bea@verify.test"]
 
-    response = client.post("/api/social-login",
-                           json={"oauth_token": oauth_token, "company_id": company_id})
-    assert response.status_code == 200, response.get_json()
-    assert response.get_json()["user"]["email_verified"] is True
+    # Tab closed. She logs in again with the password she chose.
+    resumed = client.post("/api/login", json={
+        "email": "bea@verify.test", "password": "correct-horse-battery", "company_id": company_id})
+    assert resumed.status_code == 200
+    data = resumed.get_json()
+    assert data["verify_required"] is True and "token" not in data
+    # Old token stopped working, the new one works with the (still valid) code.
+    assert verify_email(client, "bea@verify.test", first_code, started["verify_token"]).status_code == 403
+    done = verify_email(client, "bea@verify.test", first_code, data["verify_token"])
+    assert done.status_code == 200 and done.get_json()["user"]["status"] == "Pending"
+    # A wrong password never resumes anything.
+    other = client.post("/api/login", json={
+        "email": "bea@verify.test", "password": "totally-wrong-pass", "company_id": company_id})
+    assert other.status_code == 401
+
+
+def test_kicked_user_must_verify_again_before_re_applying(client):
+    ceo = signup(client, "Kay", "kay@verify.test", company_name="Kay Co")
+    company_id = str(ceo["user"]["company_id"])
+    signup(client, "Lee", "lee@verify.test", role="Employee", company_id=company_id)
+    assert client.post("/api/admin/kick-employee", headers=auth(ceo["token"]), json={"email": "lee@verify.test"}).status_code == 200
+
+    started = start_signup(client, "Lee", "lee@verify.test", role="Employee", company_id=company_id,
+                           password="a-brand-new-password").get_json()
+    with Tasko.get_db() as conn:  # nothing changed yet
+        assert conn.execute("SELECT status FROM users WHERE email = ?", ("lee@verify.test",)).fetchone()["status"] == "Kicked"
+    done = verify_email(client, "lee@verify.test", SENT["lee@verify.test"], started["verify_token"])
+    assert done.status_code == 200 and done.get_json()["user"]["status"] == "Pending"
+
+
+def test_already_registered_email_is_refused(client):
+    signup(client, "Dup", "dup@verify.test", company_name="Dup Co")
+    assert start_signup(client, "Dup", "dup@verify.test", company_name="Dup 2").status_code == 409
+
+
+def test_signup_is_refused_when_email_sending_is_not_set_up(client, monkeypatch):
+    monkeypatch.setattr(Tasko, "EMAIL_ENABLED", False)
+    monkeypatch.setattr(Tasko, "EMAIL_DEV_PRINT_CODES", False)
+    response = start_signup(client, "Off", "off@verify.test", company_name="Off Co")
+    assert response.status_code == 503
+    assert not _user_exists("off@verify.test")
+
+
+def test_google_and_apple_sign_in_are_gone(client):
+    for path in ("/api/auth/google", "/api/auth/apple", "/api/social-login"):
+        assert client.post(path, json={}).status_code == 404
+    page = client.get("/app").get_data(as_text=True)
+    for leftover in ("triggerGoogleSignIn", "triggerAppleSignIn", "Continue with Google", "Continue with Apple",
+                     "accounts.google.com", "appleid.apple.com", "GOOGLE_CLIENT_ID", "social-login"):
+        assert leftover not in page, leftover
+    csp = client.get("/app").headers["Content-Security-Policy"]
+    assert "google" not in csp and "apple" not in csp
